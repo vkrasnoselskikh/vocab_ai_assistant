@@ -13,11 +13,12 @@ Below is the pair - word in $lang_from and translation in $lang_to.
 
 $lang_from: $world_from
 $lang_to: $world_to
-
-Ask user - how the word is translated from $lang_to to $lang_from?
+                        
+Come up with a short sentence using this word. This sentence will be suggested for translation by the user.
+Ask user - how the sentence is translated from $lang_to to $lang_from?
 """)
 
-QUESTION_TEMPLATE = Template("""How is the word "$world_to" translated from $lang_to to $lang_from?""")
+#QUESTION_TEMPLATE = Template("""How is the word "$world_to" translated from $lang_to to $lang_from?""")
 
 
 class RoleMessage(str, Enum):
@@ -40,36 +41,37 @@ class UserDialogCtx:
         self._current_words: tuple[str, str] | None = None
 
     def get_completion(self, messages) -> str:
-        resp = self.client.chat.completions.create(model='gpt-4o-mini', messages=messages)
+        resp = self.client.chat.completions.create(model='gpt-5-nano', messages=messages)
         assistant_resp = resp.choices[0].message.content
         return assistant_resp
 
     def next_word(self) -> str:
         """ Return assistant message"""
-        self._current_words = self.dict_file.get_random_word()
+        world_to, world_from  = self.dict_file.get_random_word()
         lang_from, lang_to = self.dict_file.get_language_params()
 
         self._messages_ctx = [
             {"role": "system", "content": START_PROMPT.substitute(
                 lang_from=lang_from,
                 lang_to=lang_to,
-                world_from=self._current_words[0],
-                world_to=self._current_words[1]
+                world_from=world_from,
+                world_to=world_to
             )}
         ]
-        assistant = QUESTION_TEMPLATE.substitute(
-            lang_from=lang_from,
-            lang_to=lang_to,
-            world_from=self._current_words[0],
-            world_to=self._current_words[1]
-        )
+        assistant = self.get_completion(self._messages_ctx)
         self._messages_ctx.append({"role": "assistant", "content": assistant})
         return assistant
 
     def analyze_user_input(self, user_input: str):
         if user_input in ['I dont know', '--']:
-            return self._current_words[0]
-
+            self._messages_ctx.append({
+                "role": "system",
+                "content": 'User dont know. Show correct answer'
+            })
+            assistant = self.get_completion(self._messages_ctx)
+            self._messages_ctx.append({"role": "assistant", "content": assistant})
+            return assistant
+        
         self._messages_ctx.append({"role": "user", "content": user_input})
         self._messages_ctx.append({
             "role": "system",

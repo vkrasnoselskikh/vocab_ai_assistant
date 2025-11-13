@@ -15,7 +15,7 @@ def main():
             resp = diag_ctx.analyze_user_input(user_input)
             print(Fore.LIGHTMAGENTA_EX + resp )
 
-    except KeyboardInterrupt:
+    finally:
         print(Style.RESET_ALL)
 
 

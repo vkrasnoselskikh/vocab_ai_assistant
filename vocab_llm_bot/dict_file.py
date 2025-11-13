@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 class DictFile:
     def __init__(self):
         google_sheet_link = Config().google_sheet_link
-        resp = httpx.get(google_sheet_link)
-        io_content = io.StringIO(resp.text)
-        io_content.seek(0)
-        self.df = pd.read_html(io_content, header=1)[0]
-        logger.info(f'Downloaded dict: {self.df.shape[0]} rows')
+        resp = httpx.get(google_sheet_link, follow_redirects=True)
+        io_content = io.BytesIO(resp.content)
+        print(f'Downloaded file: {google_sheet_link}.')
+        self.df = pd.read_excel(io_content, engine="calamine")
+        print(f'Downloaded dict: {self.df.shape[0]} rows')
 
     def get_language_params(self) -> tuple[str, str]:
         return 'English', 'Russian' # Todo  - get language params from file
