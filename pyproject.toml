@@ -5,8 +5,15 @@ description = "Learn your vocab words via cli / bot"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiogram>=3.22.0",
+    "aiosqlite>=0.21.0",
     "beautifulsoup4>=4.14.2",
     "colorama>=0.4.6",
+    "fastapi>=0.122.0",
+    "google-api-python-client>=2.187.0",
+    "google-auth>=2.43.0",
+    "google-auth-oauthlib>=1.2.2",
+    "greenlet>=3.2.4",
     "html5lib>=1.1",
     "httpx>=0.28.1",
     "lxml>=5.3.1",
@@ -14,5 +21,14 @@ dependencies = [
     "pandas>=2.2.3",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.7.1",
+    "pytest>=9.0.2",
     "python-calamine>=0.5.4",
+    "sqlalchemy>=2.0.44",
+    "uvicorn>=0.38.0",
 ]
+
+[project.scripts]
+bot = "vocab_llm_bot.bot:main"
+
+[tool.uv]
+package=true
