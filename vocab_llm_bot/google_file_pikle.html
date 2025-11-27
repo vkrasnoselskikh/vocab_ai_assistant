@@ -42,10 +42,9 @@ function pickerCallback(data) {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({fileId})
     })
-    .then(r => r.json())
-    .then(data => {
-      alert("Выбран файл: " + data.name);
-    });
+    .then(r => {
+        window.close()
+    })
   }
 }
 </script>

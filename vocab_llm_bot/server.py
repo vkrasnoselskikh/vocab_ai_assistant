@@ -1,120 +1,126 @@
+import datetime
 import json
+import uuid
 from pathlib import Path
-from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
 from string import Template
+
+from aiohttp import web
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-from .config import SETTINGS_PATH
+
+from config import GoogleAuthConfig
+from database import get_session, save_access_token_for_user, get_access_token_for_user
+
+google_picker_html_path = Path(__file__).parent.joinpath('google_file_pikle.html')
+
+app = web.Application()
+google_auth_config = GoogleAuthConfig()  # noqa
 
 
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
-CLIENT_SECRETS_FILE = SETTINGS_PATH / 'client_secret_17520064084-tgmob015qji3cn1stsv2ener7grq27ck.apps.googleusercontent.com.json'
-token_file_path = SETTINGS_PATH / 'token1.json'
-redirect_uri = 'https://friendly-space-halibut-rvgjgr4p6j354vr-8000.app.github.dev/oauth2callback'
-
-google_picker_html_path  = Path(__file__).parent.joinpath('google_file_pikle.html')
-
-app = FastAPI()
+async def index(request: web.Request) -> web.Response:
+    html = '<a href="/auth">Авторизоваться</a>'
+    return web.Response(text=html, content_type="text/html")
 
 
-
-@app.get("/")
-def index():
-    return HTMLResponse('<a href="/auth">Авторизоваться</a>')
-
-
-@app.get("/auth")
-def auth():
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        redirect_uri=redirect_uri,
-    )
+async def auth(request: web.Request) -> web.Response:
+    flow = google_auth_config.get_flow()
+    state = request.query.get('state')
 
     authorization_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        state=state,
     )
+    resp = web.HTTPFound(authorization_url)
+    # Аналог RedirectResponse
+    return resp
 
-    return RedirectResponse(authorization_url)
 
+async def oauth2callback(request: web.Request) -> web.Response:
+    flow = google_auth_config.get_flow()
 
-@app.route("/oauth2callback")
-def oauth2callback(request:Request):
-
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        redirect_uri=redirect_uri,
-    )
-
-    flow.fetch_token(authorization_response=str(request.url))
+    user_id = uuid.UUID(request.query.get('state'))
+    code = request.query.get('code')
+    flow.fetch_token(code=code)
 
     credentials = flow.credentials
+    async with  get_session() as session:
+        await save_access_token_for_user(session, user_id, credentials)
 
-    token_file_path.write_text(credentials.to_json())
+    resp = web.HTTPFound("/select-file")
+    resp.set_cookie(
+        "user_id",
+        user_id.hex,
+        httponly=True,  # важно
+        # secure=True,  # ставьте True в проде (https)
+        samesite="Lax",  # или Strict/None по ситуации
+        max_age=3600,
+    )
 
-    return RedirectResponse("/select-file")
+    raise resp
 
-@app.get("/files")
-def get_files():
-    creds = Credentials.from_authorized_user_file(token_file_path, SCOPES)
 
-    # Создаём Google Drive API клиент
+async def get_files(user_id: str) -> web.Response:
+
+    async with  get_session() as session:
+        row = await get_access_token_for_user(session, user_id)
+
+
+    creds = Credentials.from_authorized_user_info(info={
+        'token': row.access_token,
+        'refresh_token': row.refresh_token,
+        'scopes': google_auth_config.scopes
+    })
+
     service = build('drive', 'v3', credentials=creds)
 
-    # Пример: получить список файлов, к которым есть доступ (будут только те, что вы разрешили)
     results = service.files().list(pageSize=50, fields="files(id, name)").execute()
     items = results.get('files', [])
-
-    if not items:
-        print('Нет доступных файлов.')
-    else:
-        print('Файлы:')
-        for item in items:
-            print(f"{item['name']} ({item['id']})")
+    for item in items:
+        yield item.get('id'), item.get('name')
 
 
-@app.get("/select-file")
-def picker():
-    if not token_file_path.exists():
-        return RedirectResponse("/auth")
-    creds_data = json.loads(token_file_path.read_text())
+async def picker_get(request: web.Request) -> web.Response:
+    user_id = request.cookies.get('user_id')
+
+    async with  get_session() as session:
+        row = await get_access_token_for_user(session, user_id)
+
     template = Template(google_picker_html_path.read_text())
     res = template.substitute(
-        app_id='17520064084',
-        app_key=app_key,
-        accessToken=creds_data["token"], 
-        )
-    return HTMLResponse(res)
+        app_id=GoogleAuthConfig().app_id,
+        accessToken=row.access_token,
+    )
+    return web.Response(text=res, content_type="text/html")
 
-@app.post("/select-file")
-def picker(data: dict):
-    fileId = data.get("fileId")
-    print(f"Выбран файл с ID: {fileId}")
-    main()
-    return 'ok'
 
-def main():
-    creds = Credentials.from_authorized_user_file(token_file_path, SCOPES)
-
-    # Создаём Google Drive API клиент
-    service = build('drive', 'v3', credentials=creds)
-
-    # Пример: получить список файлов, к которым есть доступ (будут только те, что вы разрешили)
-    results = service.files().list(pageSize=50, fields="files(id, name)").execute()
-    items = results.get('files', [])
-
-    if not items:
-        print('Нет доступных файлов.')
+async def picker_post(request: web.Request) -> web.Response:
+    if request.content_type == "application/json":
+        data = await request.json()
     else:
-        print('Файлы:')
-        for item in items:
-            print(f"{item['name']} ({item['id']})")
+        data = await request.post()
+
+    file_id = data.get("fileId")
+    print(f"Выбран файл с ID: {file_id}")
+
+    return web.Response(text="ok", content_type="application/json")
 
 
-if __name__ == '__main__':
-    main()
+
+# Регистрация маршрутов — заменяет декораторы @app.get / @app.post
+app.router.add_get("/", index)
+app.router.add_get("/auth", auth)
+app.router.add_get("/oauth2callback", oauth2callback)
+app.router.add_get("/files", get_files)
+app.router.add_get("/select-file", picker_get)
+app.router.add_post("/select-file", picker_post)
+
+
+def run():
+    # Стартуем aiohttp-сервер (на 0.0.0.0:8080)
+    web.run_app(app, host="localhost", port=3000)
+
+
+if __name__ == "__main__":
+    run()
