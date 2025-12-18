@@ -21,3 +21,6 @@ That's it!
 
 I made this app a habit, going through 5 sentences every day.
 
+## Add to yor vocab via telegram 
+
+Use inline mention @vocab_ai: Add "<your new word>"

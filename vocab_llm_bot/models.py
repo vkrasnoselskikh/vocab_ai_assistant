@@ -31,7 +31,7 @@ class OauthAccessToken(Base):
     expires_at: Mapped[datetime.datetime | None] = None
 
 
-class UserVocabFiles(Base):
+class UserVocabFile(Base):
     __tablename__ = "user_vocab_files"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))

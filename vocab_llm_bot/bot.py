@@ -1,56 +1,80 @@
-from aiogram import Dispatcher, Bot
-from aiogram.filters import CommandStart
+import uuid
+from aiogram import Dispatcher, Bot, Router, F
+from aiogram.filters import CommandStart, Command    
 from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    Message, WebAppInfo,
+    Message,
 )
+from aiogram.fsm.state import StatesGroup, State
 
-from config import Config, GoogleAuthConfig
-from database import get_session, get_or_create_user, get_access_token_for_user
-from vocab_llm_bot.server import app
+from vocab_llm_bot.models import UserVocabFile
+
+from .config import Config, GoogleServiceAccount
+from .database import get_session, get_or_create_user, get_user_vocab_files
+
+main_router = Router(name=__name__)
+
+class Form(StatesGroup):
+    google_sheet_link = State()
 
 
+@main_router.message(Command("start"))
 async def cmd_start(message: Message):
     async with get_session() as session:
         # 1. Получаем / создаём пользователя
         user = await get_or_create_user(session, message.from_user)
 
-        # 2. Проверяем наличие OauthAccessToken
+        # 2. Проверяем наличие Файла у пользователя
 
-        access_token = await get_access_token_for_user(session, user.id)
+        user_vocab_files = await get_user_vocab_files(session, user.id)
 
-        if access_token is None:
-            auth_url = GoogleAuthConfig().authorize_url + f"?state={user.id}"
+        if len(user_vocab_files) == 0:
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="Sign in Google",
-                            web_app=WebAppInfo(url=auth_url),
-                        )
-                    ]
-                ]
-            )
+            bot_email = GoogleServiceAccount().get_client_email()
+
 
             await message.answer(
-                "Вы ещё не добавили из Google Sheet ваш словарь .\n"
-                "Нажмите кнопку ниже, чтобы пройти авторизацию:",
-                reply_markup=keyboard,
+                text=("Вы ещё не добавили из Google Sheet ваш словарь .\n"
+                "Предоставьте доступ к файлу для почты: " + bot_email + "\n" +
+                "Вставьте ссылку на файл в ответном сообщении."),
+                #reply_markup=keyboard,
             )
         else:
-            # 4. Токен есть — показываем список файлов
-            await message.answer("У вас пока нет добавленных файлов.")
+            # 4. Файлы есть - приветствуем пользователя
+            await message.answer("Супер, а у вас уже все настроено. давайте учиться!")
+
+@main_router.message(F.text)
+async def message_with_text(message: Message):
+    message_text = message.text.strip()
+    # TODO: добавить валидацию ссылки на Google Sheet
+    
+
+    async with get_session() as session:
+        # 1. Получаем / создаём пользователя
+        user = await get_or_create_user(session, message.from_user)
+
+        # 2. Проверяем наличие Файла у пользователя
+
+        user_vocab_files = await get_user_vocab_files(session, user.id)
+
+        if len(user_vocab_files) == 0:
+            # 3. Файла нет - сохраняем ссылку
+            new_vocab_file = UserVocabFile(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                external_id=message_text,
+            )
+            session.add(new_vocab_file)
+            await session.commit()
+            await session.refresh(new_vocab_file)
+    await message.answer("Супер, теперь все настроено. давайте учиться!")
 
 async def main():
     bot = Bot(token=Config().telegram_bot_token)
     dp = Dispatcher()
-    app['bot'] = bot
-
-    # Регистрируем хэндлер для /start
-    dp.message.register(cmd_start, CommandStart())
-    #web.run_app(app, port=8000, host='0.0.0.0')
+    dp.include_routers(main_router)
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 

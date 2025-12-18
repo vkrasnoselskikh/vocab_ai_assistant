@@ -15,19 +15,17 @@ class Config(BaseSettings):
     telegram_bot_token: str
 
 
-class GoogleAuthConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', extra='ignore', env_prefix='GOOGLE_')
-    app_id: str
-    client_secrets: str = str(
-        SETTINGS_PATH / 'client_secret_17520064084-tgmob015qji3cn1stsv2ener7grq27ck.apps.googleusercontent.com.json'
+class GoogleServiceAccount(BaseSettings):
+    model_config = SettingsConfigDict(env_file='.env', extra='ignore', env_prefix='GOOGLE_SERVICE_ACCOUNT_')
+    path: str = str(
+        SETTINGS_PATH / 'service_account.json'
     )
-    scopes: list[str] = ['https://www.googleapis.com/auth/drive.file']
-    authorize_url: str
-    redirect_url: str
 
-    def get_flow(self):
-        return Flow.from_client_secrets_file(
-            self.client_secrets,
-            scopes=self.scopes,
-            redirect_uri=self.redirect_url,
-        )
+    def get_service_account_info(self) -> dict:
+        import json
+        with open(self.path, 'r') as f:
+            return json.load(f)
+    
+    def get_client_email(self) -> str:
+        info = self.get_service_account_info()
+        return info['client_email']

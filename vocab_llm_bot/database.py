@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from vocab_llm_bot.config import DATABASE_URL
-from vocab_llm_bot.models import User, OauthAccessToken, Base
+from vocab_llm_bot.models import User, Base, UserVocabFile
 
 async_engine = create_async_engine(f"sqlite+aiosqlite:///{str(DATABASE_URL)}")
 get_session = async_sessionmaker(bind=async_engine, expire_on_commit=False, )
@@ -38,41 +38,10 @@ async def get_or_create_user(session: AsyncSession, tg_user) -> User:
         await session.refresh(user)
     return user
 
-
-async def save_access_token_for_user(session: AsyncSession, user_id, credentials: Credentials) -> OauthAccessToken:
-    if isinstance(user_id, str):
-        user_id = uuid.UUID(user_id)
-    stmt = select(OauthAccessToken).where(OauthAccessToken.user_id == user_id)
-    res = (await session.execute(stmt)).scalar_one_or_none()
-
-    if res is None:
-        print(credentials.expiry)
-        token = OauthAccessToken(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            access_token=credentials.token,
-            refresh_token=credentials.refresh_token,
-            expires_at=credentials.expiry,
-        )
-        session.add(token)
-        await session.commit()
-        return token
-    else:
-        res: OauthAccessToken
-        res.access_token = credentials.token
-        if credentials.refresh_token:
-            res.refresh_token = credentials.refresh_token
-        res.expires_at = credentials.expiry
-        session.add(res)
-        await session.commit()
-        return res
-
-
-async def get_access_token_for_user(session: AsyncSession, user_id) -> OauthAccessToken | None:
-    if isinstance(user_id, str):
-        user_id = uuid.UUID(user_id)
-    access_token_stmt = select(OauthAccessToken).where(OauthAccessToken.user_id == user_id)
-    return (await session.execute(access_token_stmt)).scalar_one_or_none()
+async def get_user_vocab_files(session: AsyncSession, user_id) -> list[UserVocabFile]:
+    stmt = select(UserVocabFile).where(UserVocabFile.user_id == user_id)
+    result = await session.execute(stmt)
+    return result.scalars().all()
 
 
 if __name__ == '__main__':
