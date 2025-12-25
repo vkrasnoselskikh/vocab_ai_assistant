@@ -2,4 +2,6 @@
 .env
 .venv
 .settings
+__pycache__/
+*.pyc
 token*.json
