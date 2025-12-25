@@ -18,7 +18,6 @@ Come up with a short sentence using this word. This sentence will be suggested f
 Ask user - how the sentence is translated from $lang_to to $lang_from?
 """)
 
-#QUESTION_TEMPLATE = Template("""How is the word "$world_to" translated from $lang_to to $lang_from?""")
 
 
 class RoleMessage(str, Enum):

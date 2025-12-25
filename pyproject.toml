@@ -21,6 +21,7 @@ dependencies = [
     "pandas>=2.2.3",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.7.1",
+    "pytest>=9.0.2",
     "python-calamine>=0.5.4",
     "sqlalchemy>=2.0.44",
     "uvicorn>=0.38.0",

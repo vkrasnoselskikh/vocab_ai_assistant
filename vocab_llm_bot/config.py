@@ -14,6 +14,7 @@ class Config(BaseSettings):
     openai_api_key: str
     telegram_bot_token: str
 
+GOOGLE_SHEET_SCOPES: list[str] = ["https://www.googleapis.com/auth/spreadsheets"]
 
 class GoogleServiceAccount(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore', env_prefix='GOOGLE_SERVICE_ACCOUNT_')
@@ -29,3 +30,9 @@ class GoogleServiceAccount(BaseSettings):
     def get_client_email(self) -> str:
         info = self.get_service_account_info()
         return info['client_email']
+    
+    def get_credentials(self):
+        from google.oauth2.service_account import Credentials
+        info = self.get_service_account_info()
+        creds = Credentials.from_service_account_info(info, scopes=GOOGLE_SHEET_SCOPES)
+        return creds
