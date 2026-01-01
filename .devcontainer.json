@@ -1,6 +1,10 @@
 {
 	"name": "Python 3",
-	"image": "ghcr.io/astral-sh/uv:0.9.9-python3.12-trixie-slim",
+	"image": "mcr.microsoft.com/devcontainers/python:3.13",
+
+    "features": {
+        "ghcr.io/jsburckhardt/devcontainer-features/uv:1": {}
+    },
 	"customizations": {
 		"vscode": {
 			"settings": {},

@@ -26,3 +26,9 @@ dependencies = [
     "sqlalchemy>=2.0.44",
     "uvicorn>=0.38.0",
 ]
+
+[project.scripts]
+bot = "vocab_llm_bot.bot:main"
+
+[tool.uv]
+package=true

@@ -1,29 +1,26 @@
 import pytest
-from vocab_llm_bot.dict_file import DictFile
+from vocab_llm_bot.google_dict_file import GoogleDictFile 
 
 
 @pytest.fixture
-def dict_file() -> DictFile:
+def dict_file() -> GoogleDictFile:
     google_sheet_id = "1I6vXrDOB5AXqwPltLW5RNTrvMg2dJ8sdPmiCuNr4C7I"
-    f = DictFile(google_sheet_id=google_sheet_id)
+    f = GoogleDictFile(google_sheet_id=google_sheet_id)
     f.vocab_sheet_name = "English"
     return f
 
 
-def test_get_max_rows(dict_file: DictFile):
-    max_rows = dict_file.max_rows()
+def test_get_max_rows(dict_file: GoogleDictFile):
+    max_rows = dict_file.get_max_rows()
     assert isinstance(max_rows, int)
     assert max_rows > 0
 
 
-def test_get_language_params(dict_file: DictFile):
-    lang_from, lang_to = dict_file.get_language_params()
-    assert lang_from == 'English'
-    assert lang_to == 'Russian'
+def test_get_header(dict_file: GoogleDictFile):
+    header = dict_file.get_header()
+    assert header[0] == 'English'
+    assert header[1] == 'Russian'
 
-def test_get_random_word(dict_file: DictFile):
-    word_from, word_to = dict_file.get_random_word()
-    assert isinstance(word_from, str)
-    assert isinstance(word_to, str)
-    assert len(word_from) > 0
-    assert len(word_to) > 0
+def test_get_random_row(dict_file: GoogleDictFile):
+    row = dict_file.get_random_row()
+    assert isinstance(row, list)

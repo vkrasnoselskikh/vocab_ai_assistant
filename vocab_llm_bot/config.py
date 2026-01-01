@@ -1,3 +1,4 @@
+import logging
 from google_auth_oauthlib.flow import Flow
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
@@ -6,6 +7,8 @@ SETTINGS_PATH = Path(__file__).parent.parent / '.settings'
 SETTINGS_PATH.mkdir(exist_ok=True)
 
 DATABASE_URL = SETTINGS_PATH / "app.db"
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
 class Config(BaseSettings):

@@ -11,7 +11,7 @@ from aiogram.fsm.state import StatesGroup, State
 from vocab_llm_bot.models import UserVocabFile
 
 from .config import Config, GoogleServiceAccount
-from .database import get_session, get_or_create_user, get_user_vocab_files
+from .database import get_session, get_or_create_user, get_user_vocab_files, create_all_tables
 
 main_router = Router(name=__name__)
 
@@ -70,14 +70,18 @@ async def message_with_text(message: Message):
             await session.refresh(new_vocab_file)
     await message.answer("Супер, теперь все настроено. давайте учиться!")
 
-async def main():
+async def async_main():
+    await create_all_tables()
     bot = Bot(token=Config().telegram_bot_token)
     dp = Dispatcher()
     dp.include_routers(main_router)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
+def main():
+    import asyncio
+    asyncio.run(async_main())
+
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

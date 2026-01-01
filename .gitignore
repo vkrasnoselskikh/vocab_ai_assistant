@@ -5,3 +5,4 @@
 __pycache__/
 *.pyc
 token*.json
+.pytest_cache/
