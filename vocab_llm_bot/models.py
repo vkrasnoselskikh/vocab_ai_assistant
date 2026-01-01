@@ -2,9 +2,8 @@ import datetime
 import uuid
 
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
 
 
 class Base(DeclarativeBase):
@@ -35,6 +34,14 @@ class UserVocabFile(Base):
     __tablename__ = "user_vocab_files"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    external_id: Mapped[str]
-    external_name: Mapped[str | None]
+    sheet_id: Mapped[str]
+    sheet_name: Mapped[str | None] = None
+    external_name: Mapped[str | None] = None
     created_at: Mapped[datetime.datetime | None]
+
+class UserVocabFileLangColumns(Base):
+    __tablename__ = "user_vocab_file_columns"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    vocab_file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user_vocab_files.id"))
+    lang: Mapped[str]
+    column_index: Mapped[int]

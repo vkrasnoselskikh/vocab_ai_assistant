@@ -6,7 +6,7 @@ from openai import OpenAI
 from enum import Enum
 
 from vocab_llm_bot.config import Config
-from vocab_llm_bot.dict_file import DictFile
+from vocab_llm_bot.google_dict_file import GoogleDictFile
 
 START_PROMPT = Template("""You is translate assistant.
 Below is the pair - word in $lang_from and translation in $lang_to.
@@ -31,8 +31,9 @@ class Message(TypedDict):
     content: str
 
 
+
 class UserDialogCtx:
-    def __init__(self, dict_file: DictFile):
+    def __init__(self, dict_file: GoogleDictFile):
         self.config = Config()
         self.client = OpenAI(api_key=self.config.openai_api_key)
         self.dict_file = dict_file

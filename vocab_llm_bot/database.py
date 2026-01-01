@@ -3,11 +3,11 @@ import datetime
 import uuid
 
 from google.oauth2.credentials import Credentials
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from vocab_llm_bot.config import DATABASE_URL
-from vocab_llm_bot.models import User, Base, UserVocabFile
+from vocab_llm_bot.models import User, Base, UserVocabFile, UserVocabFileLangColumns
 
 async_engine = create_async_engine(f"sqlite+aiosqlite:///{str(DATABASE_URL)}")
 get_session = async_sessionmaker(bind=async_engine, expire_on_commit=False, )
@@ -42,6 +42,18 @@ async def get_user_vocab_files(session: AsyncSession, user_id) -> list[UserVocab
     stmt = select(UserVocabFile).where(UserVocabFile.user_id == user_id)
     result = await session.execute(stmt)
     return result.scalars().all()
+
+async def delete_all_user_data(user_id: uuid.UUID):
+    async with get_session() as session:
+        await session.execute(
+            delete(UserVocabFileLangColumns).where(UserVocabFileLangColumns.vocab_file_id.in_(select(UserVocabFile.id).where(UserVocabFile.user_id == user_id)))
+        )
+        # Удаляем связанные записи в других таблицах, если необходимо
+        await session.execute(
+            delete(UserVocabFile).where(UserVocabFile.user_id == user_id)
+        )
+       
+        await session.commit()
 
 
 if __name__ == '__main__':

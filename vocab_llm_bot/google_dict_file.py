@@ -15,7 +15,7 @@ class GoogleDictFile:
         self.google_sheet_id = google_sheet_id
         self.service = build('sheets', 'v4', credentials=sa.get_credentials())
         self.sheet = self.service.spreadsheets()
-        self._vocab_sheet_name: str | None = None
+        self._sheet_name: str | None = None
         self._max_rows: int | None = None
 
     
@@ -29,19 +29,20 @@ class GoogleDictFile:
         
     
     @property
-    def vocab_sheet_name(self) -> str:
-        return self._vocab_sheet_name or 'Vocabulary'
+    def sheet_name(self) -> str | None:
+        if self._sheet_name is None:
+            raise ValueError("Sheet name is not set")
+        return self._sheet_name
 
-    @vocab_sheet_name.setter
-    def vocab_sheet_name(self, sheet_name: str):
-        self._vocab_sheet_name = sheet_name
+    @sheet_name.setter
+    def sheet_name(self, sheet_name: str):
+        self._sheet_name = sheet_name
 
     @cache
     def get_max_rows(self) -> int:
-        
         result = self.sheet.get(
             spreadsheetId=self.google_sheet_id,
-            ranges=self.vocab_sheet_name,
+            ranges=self.sheet_name,
             fields="sheets(data(rowData(values(effectiveValue))))"
         ).execute()
 
@@ -53,16 +54,17 @@ class GoogleDictFile:
     def get_header(self) -> list[str]:
         result = self.sheet.values().get(
             spreadsheetId=self.google_sheet_id,
-            range=f'{self.vocab_sheet_name}!A1:Z1'
+            range=f'{self.sheet_name}!A1:Z1'
         ).execute()
         header = result.get('values', [[]])[0]
         return header
-
+    
 
     def get_random_row(self) -> list[str]:
         idx = choice(range(2, self.get_max_rows()))
         result = self.sheet.values().get(
             spreadsheetId=self.google_sheet_id,
-            range=f'{self.vocab_sheet_name}!A{idx + 2}:z{idx + 2}'
+            range=f'{self.sheet_name}!A{idx + 2}:z{idx + 2}'
         ).execute()
         return result.get('values', [[]])[0]
+
