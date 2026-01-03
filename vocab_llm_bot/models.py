@@ -44,4 +44,4 @@ class UserVocabFileLangColumns(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     vocab_file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user_vocab_files.id"))
     lang: Mapped[str]
-    column_index: Mapped[int]
+    column_name: Mapped[str]

@@ -10,26 +10,27 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
+from vocab_llm_bot.app import UserDialogCtx
 from vocab_llm_bot.models import UserVocabFile
 from vocab_llm_bot.google_dict_file import GoogleDictFile
 
 from .config import Config, GoogleServiceAccount
-from .database import get_session, get_or_create_user, get_user_vocab_files, create_all_tables
+from .database import delete_all_user_data, get_session, get_or_create_user, get_user_vocab_files, create_all_tables
 
-main_router = Router(name=__name__)
+setup_router = Router(name="setup")
+learning_router = Router(name="learning")
 
-bot_email = GoogleServiceAccount().get_client_email()
-
+# FSM только для настройки
 class GoogleFileForm(StatesGroup):
     enter_link = State()
     enter_sheet_name = State()
     enter_lang_columns = State()
 
 
-@main_router.message(StateFilter(None), Command("start"))
+# ========== SETUP ROUTER ==========
+@setup_router.message(StateFilter(None), Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     async with get_session() as session:
-        # 1. Получаем / создаём пользователя
         user = await get_or_create_user(session, message.from_user)
         user_vocab_files = await get_user_vocab_files(session, user.id)
 
@@ -40,36 +41,18 @@ async def cmd_start(message: Message, state: FSMContext):
                 "А затем Пришлите ссылку на файл:")
             )
             await state.set_state(GoogleFileForm.enter_link)
-            
         else:
-            file = user_vocab_files[0]
-            if not file.sheet_name:
-                await message.answer(
-                    text="Укажите имя листа со словарём. Пожалуйста, введите его:"
-                )
-                await state.set_state(GoogleFileForm.enter_sheet_name)
-            else:
-            # 4. Файлы есть - приветствуем пользователя
-                await message.answer("Супер, а у вас уже все настроено. давайте учиться!")
+            # Переход в learning_router логику
+            await show_learning_menu(message, state)
 
-@main_router.message(StateFilter(GoogleFileForm.enter_link), F.text)
+
+@setup_router.message(StateFilter(GoogleFileForm.enter_link), F.text)
 async def process_file_link(message: Message, state: FSMContext):
-    link = message.text.strip()
-    async with get_session() as session:
-        # 1. Получаем / создаём пользователя
-        user = await get_or_create_user(session, message.from_user)
-        # 2. Сохраняем ссылку на файл
-        new_vocab_file = UserVocabFile(
-            id=uuid.uuid4(),
-            user_id=user.id,
-            sheet_id=link,
-        )
-        session.add(new_vocab_file)
-        await session.commit()
-        await state.set_state(GoogleFileForm.enter_sheet_name)
-        await message.answer("Отлично! Теперь укажите имя листа со словарём. Пожалуйста, введите его:")
+    # ... ваша логика ...
+    await state.set_state(GoogleFileForm.enter_sheet_name)
 
-@main_router.message(StateFilter(GoogleFileForm.enter_sheet_name), F.text)
+
+@setup_router.message(StateFilter(GoogleFileForm.enter_sheet_name), F.text)
 async def process_sheet_name(message: Message, state: FSMContext):
     sheet_name = message.text.strip()
     async with get_session() as session:
@@ -111,7 +94,7 @@ async def process_sheet_name(message: Message, state: FSMContext):
         )
        
 
-@main_router.callback_query(StateFilter(GoogleFileForm.enter_lang_columns), F.data.startswith("select_lang_col:"))
+@setup_router.callback_query(StateFilter(GoogleFileForm.enter_lang_columns), F.data.startswith("select_lang_col:"))
 async def process_lang_columns(callback_query, state: FSMContext):
     col_index = int(callback_query.data.split(":")[1])
     async with get_session() as session:
@@ -136,35 +119,58 @@ async def process_lang_columns(callback_query, state: FSMContext):
         session.add(lang_column)
         await session.commit()
 
-@main_router.callback_query(StateFilter(GoogleFileForm.enter_lang_columns), F.data=="save_settings")
+@setup_router.callback_query(StateFilter(GoogleFileForm.enter_lang_columns), F.data=="save_settings")
 async def save_settings(callback_query, state: FSMContext):
-    await callback_query.message.answer("Настройки сохранены! Теперь вы можете начать учить слова.")
+    await callback_query.message.answer("Настройки сохранены!")
     await state.clear()
 
 
-@main_router.message(StateFilter(None), Command("reset"))
+@setup_router.message(StateFilter(None), Command("reset"))
 async def reset_settings(message: Message, state: FSMContext):
     await state.clear()
-
-     async with get_session() as session:
-        # 1. Получаем / создаём пользователя
+    async with get_session() as session:
         user = await get_or_create_user(session, message.from_user)
-        # 2. Получаем файл
-        user_vocab_files = await delete_all_user_data(session, user.id)
-
+        await delete_all_user_data(session, user.id)
     await message.answer("Настройки сброшены! Теперь вы можете начать заново.")
 
 
+# ========== LEARNING ROUTER ==========
+
+class TrainState(StatesGroup):
+    gen_question = State()
+    user_answered = State()
+
+@learning_router.message(Command("train"))
+async def cmd_learn(message: Message):
+    async with get_session() as session:
+        user = await get_or_create_user(session, message.from_user)
+        user_vocab_files = await get_user_vocab_files(session, user.id)
+        
+        if not user_vocab_files or not user_vocab_files[0].sheet_name:
+            await message.answer("Сначала настройте приложение командой /start")
+            return
+
+        await message.answer("Давайте учиться!")
+        dict_file=GoogleDictFile(
+                google_sheet_id=user_vocab_files[0].sheet_id
+        )
+        ctx= UserDialogCtx(dict_file=dict_file)
 
 
 
+
+# ========== MAIN ==========
 async def async_main():
     await create_all_tables()
     bot = Bot(token=Config().telegram_bot_token)
     dp = Dispatcher()
-    dp.include_routers(main_router)
+    
+
+    dp.include_routers(setup_router, learning_router)
+    
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
+
 
 def main():
     import asyncio

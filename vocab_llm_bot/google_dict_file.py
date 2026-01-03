@@ -9,6 +9,13 @@ from vocab_llm_bot.config import GoogleServiceAccount
 logger = logging.getLogger(__name__)
 sa = GoogleServiceAccount()
 
+def _col_index_to_letter(index: int) -> str:
+    letters = ''
+    while index > 0:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
+
 
 class GoogleDictFile:
     def __init__(self, google_sheet_id: str):
@@ -52,13 +59,34 @@ class GoogleDictFile:
 
     @cache
     def get_header(self) -> list[str]:
-        result = self.sheet.values().get(
-            spreadsheetId=self.google_sheet_id,
-            range=f'{self.sheet_name}!A1:Z1'
-        ).execute()
-        header = result.get('values', [[]])[0]
-        return header
-    
+        try:
+            result = self.sheet.get(
+                spreadsheetId=self.google_sheet_id,
+                ranges=self.sheet_name,
+                includeGridData=True,
+                fields="sheets(data(startRow,startColumn,rowData(values(effectiveValue,formattedValue))))"
+            ).execute()
+            data = result.get('sheets', [])[0].get('data', [])[0]
+            start_row = data.get('startRow', 0)    # 0-based
+            start_col = data.get('startColumn', 0) # 0-based
+            row_data = data.get('rowData', [])
+            if not row_data:
+                return []
+            cells = row_data[0].get('values', [])
+            header = []
+            for i, cell in enumerate(cells):
+                ev = cell.get('effectiveValue') or cell.get('formattedValue') or {}
+                if isinstance(ev, dict):
+                    val = ev.get('stringValue') if 'stringValue' in ev else ev.get('numberValue', '')
+                else:
+                    val = ev
+                col_number_1based = start_col + i + 1
+                row_number_1based = start_row + 1
+                header.append((val, row_number_1based, _col_index_to_letter(col_number_1based)))
+            return header
+        except HttpError as err:
+            logger.error("An error occurred: %s", err)
+            return []
 
     def get_random_row(self) -> list[str]:
         idx = choice(range(2, self.get_max_rows()))
