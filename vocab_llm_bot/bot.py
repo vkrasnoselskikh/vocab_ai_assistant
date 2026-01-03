@@ -1,18 +1,21 @@
+from tkinter import W
+from typing import Any, Awaitable, Callable
 import uuid
-from aiogram import Dispatcher, Bot, Router, F
+from aiogram import BaseMiddleware, Dispatcher, Bot, Router, F
 from aiogram.filters import CommandStart, Command    
 from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     Message,
 )
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
-from vocab_llm_bot.app import UserDialogCtx
-from vocab_llm_bot.models import UserVocabFile
-from vocab_llm_bot.google_dict_file import GoogleDictFile
+from .training_strategies import WorldPairTrainStrategy
+from .models import UserVocabFile
+from .google_dict_file import GoogleDictFile
 
 from .config import Config, GoogleServiceAccount
 from .database import delete_all_user_data, get_session, get_or_create_user, get_user_vocab_files, create_all_tables
@@ -138,23 +141,72 @@ async def reset_settings(message: Message, state: FSMContext):
 
 class TrainState(StatesGroup):
     gen_question = State()
+    wait_user_answer = State()
     user_answered = State()
 
-@learning_router.message(Command("train"))
-async def cmd_learn(message: Message):
-    async with get_session() as session:
-        user = await get_or_create_user(session, message.from_user)
-        user_vocab_files = await get_user_vocab_files(session, user.id)
-        
-        if not user_vocab_files or not user_vocab_files[0].sheet_name:
-            await message.answer("Сначала настройте приложение командой /start")
-            return
+class TranContext(BaseMiddleware):
 
-        await message.answer("Давайте учиться!")
-        dict_file=GoogleDictFile(
-                google_sheet_id=user_vocab_files[0].sheet_id
-        )
-        ctx= UserDialogCtx(dict_file=dict_file)
+    async def __call__(
+        self,
+        handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
+        event: Message,
+        data: dict[str, Any]
+    ) -> Any:
+        async with get_session() as session:
+            data['orm_user'] = await get_or_create_user(session, event.from_user)
+            data['session'] = session
+            data['user_vocab_files'] =  await get_user_vocab_files(session,  data['orm_user'].id)
+            if not data['user_vocab_files'] or not data['user_vocab_files'][0].sheet_name:
+                await event.answer("Сначала настройте приложение командой /start")
+                return
+            dict_file=GoogleDictFile(google_sheet_id=user_vocab_files[0].sheet_id)
+            data['wp_ctx']= WorldPairTrainStrategy(dict_file=dict_file, 
+                                        lang_from_col='A', 
+                                        lang_to_col='B', 
+                                        lang_from='English', 
+                                        lang_to='Russian'
+                                        )
+        return await handler(event, data)
+    
+
+learning_router.message.middleware(TranContext())
+
+@learning_router.message(Command("train"))
+async def cmd_start_train(message: Message, wp_ctx: WorldPairTrainStrategy):
+    await message.answer("Начинаем тренировку!")
+    await message.set_state(TrainState.gen_question)
+
+
+@learning_router.message(StateFilter(TrainState.gen_question))
+async def process_question(message: Message, wp_ctx: WorldPairTrainStrategy, state: FSMContext):
+   builder = InlineKeyboardBuilder()
+   builder.add(InlineKeyboardButton(
+        text="Я не знаю",
+        callback_data="dont_know_answer")
+    )
+   await message.answer(wp_ctx.next_word())
+   await state.set_state(TrainState.wait_user_answer)
+
+
+
+@learning_router.message(StateFilter(GoogleFileForm.enter_lang_columns))
+async def cmd_learn(message: Message, state: FSMContext wp_ctx: WorldPairTrainStrategy):
+   
+   builder = InlineKeyboardBuilder()
+   builder.add(InlineKeyboardButton(
+        text="Я не знаю",
+        callback_data="dont_know_answer")
+    )
+   await message.answer(wp_ctx.next_word())
+
+
+
+
+@learning_router.callback_query(F.data=="dont_know_answer")
+async def process_dont_know(callback_query: Message, wp_ctx: WorldPairTrainStrategy):
+    await callback_query.answer(wp_ctx.analyze_user_input('--'))
+
+
 
 
 

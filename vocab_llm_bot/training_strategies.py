@@ -46,18 +46,21 @@ def get_completion(messages) -> str:
 
 
 
-class WorldPairTrain:
+class WorldPairTrainStrategy:
     def __init__(self, 
                  dict_file: GoogleDictFile, 
                  lang_from: str, 
-                 lang_to:str
+                 lang_to:str,
+                 lang_from_col: str='A',
+                 lang_to_col: str='B'
                  ):
         self.dict_file = dict_file
         # Найти в файле колонки для lang_from и lang_to
         self.lang_from = lang_from
         self.lang_to = lang_to
-        self.lang_from_col = self.dict_file.get_language_column_index(lang_from)
-        self.lang_to_col = self.dict_file.get_language_column_index(lang_to)
+        self.lang_from_col = lang_from_col
+        self.lang_to_col = lang_to_col
+
     
         self._messages_ctx: list[Message] = []
         self._current_words: tuple[str, str] | None = None
@@ -66,13 +69,12 @@ class WorldPairTrain:
 
     def next_word(self) -> str:
         """ Return assistant message"""
-        world_to, world_from  = self.dict_file()
-        lang_from, lang_to = self.dict_file.get_language_params()
+        world_to, world_from  = self.dict_file.get_random_row
 
         self._messages_ctx = [
             {"role": "system", "content": START_PROMPT.substitute(
-                lang_from=lang_from,
-                lang_to=lang_to,
+                lang_from=self.lang_from,
+                lang_to=self.lang_to,
                 world_from=world_from,
                 world_to=world_to
             )}
