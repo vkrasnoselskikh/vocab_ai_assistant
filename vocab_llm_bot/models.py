@@ -18,6 +18,7 @@ class User(Base):
     username: Mapped[str | None]
     first_name: Mapped[str | None]
     last_name: Mapped[str | None]
+    training_mode: Mapped[str | None]
 
 
 class OauthAccessToken(Base):
@@ -45,3 +46,11 @@ class UserVocabFileLangColumns(Base):
     vocab_file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user_vocab_files.id"))
     lang: Mapped[str]
     column_name: Mapped[str]
+
+
+class UserWordProgress(Base):
+    __tablename__ = "user_word_progress"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    word: Mapped[str]
+    is_passed: Mapped[bool] = mapped_column(default=False)

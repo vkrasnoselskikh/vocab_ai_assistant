@@ -25,7 +25,7 @@ class GoogleDictFile:
         self._sheet_name: str | None = None
         self._max_rows: int | None = None
 
-    
+
     def get_sheets(self):
         try:
             result = self.sheet.get(spreadsheetId=self.google_sheet_id).execute()
@@ -33,8 +33,8 @@ class GoogleDictFile:
         except HttpError as err:
             logger.error(f'An error occurred: {err}')
             return []
-        
-    
+
+
     @property
     def sheet_name(self) -> str | None:
         if self._sheet_name is None:
@@ -96,3 +96,10 @@ class GoogleDictFile:
         ).execute()
         return result.get('values', [[]])[0]
 
+    def get_random_row_excluding(self, exclude: list[str]) -> list[str]:
+        idx = choice(range(2, self.get_max_rows()))
+        result = self.sheet.values().get(
+            spreadsheetId=self.google_sheet_id,
+            range=f'{self.sheet_name}!A{idx + 2}:z{idx + 2}'
+        ).execute()
+        return result.get('values', [[]])[0]

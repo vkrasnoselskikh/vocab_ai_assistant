@@ -60,6 +60,17 @@ async def get_user_vocab_files(session: AsyncSession, user_id) -> list[UserVocab
     return result.scalars().all()
 
 
+async def get_user_vocab_file_lang_columns(
+    session: AsyncSession, vocab_file_id
+) -> list[UserVocabFileLangColumns]:
+    stmt = select(UserVocabFileLangColumns).where(
+        UserVocabFileLangColumns.vocab_file_id == vocab_file_id
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+
 async def delete_all_user_data(user_id: uuid.UUID):
     async with get_session() as session:
         await session.execute(
