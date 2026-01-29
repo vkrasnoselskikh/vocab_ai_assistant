@@ -1,0 +1,222 @@
+import uuid
+
+from aiogram import F, Router
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..config import GoogleServiceAccount
+from ..database import (
+    create_uesr_vocab_file,
+    delete_all_user_data,
+    get_or_create_user,
+    get_session,
+    get_user_vocab_files,
+)
+from ..google_dict_file import GoogleDictFile
+from ..models import User, UserVocabFileLangColumns
+
+setup_router = Router(name="setup")
+
+bot_email = GoogleServiceAccount().get_client_email()
+
+
+# FSM только для настройки
+class GoogleFileForm(StatesGroup):
+    enter_link = State()
+    enter_sheet_name = State()
+    enter_lang_columns = State()
+    select_training_mode = State()
+
+
+@setup_router.message(StateFilter(None), Command("start"))
+async def cmd_start(message: Message, state: FSMContext):
+    async with get_session() as session:
+        user = await get_or_create_user(session, message.from_user)
+        user_vocab_files = await get_user_vocab_files(session, user.id)
+
+        if len(user_vocab_files) == 0:
+            await message.answer(
+                text=(
+                    "Вы ещё не добавили из Google Sheet ваш словарь .\n"
+                    "Предоставьте доступ к файлу для почты: "
+                    + bot_email
+                    + "\n"
+                    + "А затем Пришлите ссылку на файл:"
+                )
+            )
+            await state.set_state(GoogleFileForm.enter_link)
+        else:
+            await message.answer(
+                text="У вас уже все настроено. Начните учить слова командой /learn"
+            )
+
+
+@setup_router.message(StateFilter(GoogleFileForm.enter_link), F.text)
+async def process_file_link(
+    message: Message, state: FSMContext, session: AsyncSession, orm_user: User
+):
+    link = message.text.strip()
+    await create_uesr_vocab_file(session, user_id=orm_user.id, google_file_id=link)
+    await state.set_state(GoogleFileForm.enter_sheet_name)
+    await message.answer(
+        "Отлично! Теперь укажите имя листа со словарём. Пожалуйста, введите его:"
+    )
+
+
+def get_column_selection_keyboard(header_list: list[str], selected_indices: list[int]):
+    builder = InlineKeyboardBuilder()
+    for idx, col_name in enumerate(header_list):
+        checkbox = "✅ " if idx in selected_indices else ""
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{checkbox}{col_name}", callback_data=f"select_lang_col:{idx}"
+            )
+        )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="💾 Сохранить настройки", callback_data="save_settings"
+        )
+    )
+    return builder.as_markup()
+
+
+@setup_router.message(StateFilter(GoogleFileForm.enter_sheet_name), F.text)
+async def process_sheet_name(
+    message: Message, state: FSMContext, session: AsyncSession, orm_user: User
+):
+    sheet_name = message.text.strip()
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files:
+        await message.answer("Ошибка: файл не найден.")
+        return
+
+    vocab_file = user_vocab_files[0]
+    vocab_file.sheet_name = sheet_name
+    session.add(vocab_file)
+    await session.commit()
+
+    google_dict_file = GoogleDictFile(google_sheet_id=vocab_file.sheet_id)
+    google_dict_file.sheet_name = sheet_name
+    header = google_dict_file.get_header()
+
+    # Инициализируем данные в состоянии для отслеживания выбора пользователя
+    await state.update_data(header=header, selected_indices=[])
+
+    # Формируем список кнопок через функцию
+    await state.set_state(GoogleFileForm.enter_lang_columns)
+    await message.answer(
+        "Выберите языковые колонки:",
+        reply_markup=get_column_selection_keyboard(header, []),
+    )
+
+
+@setup_router.callback_query(
+    StateFilter(GoogleFileForm.enter_lang_columns),
+    F.data.startswith("select_lang_col:"),
+)
+async def process_lang_columns(callback_query, state: FSMContext):
+    # Достаем ID колонки из callback_data
+    col_index = int(callback_query.data.split(":")[1])
+
+    # Получаем текущие данные из FSM
+    data = await state.get_data()
+    header = data.get("header", [])
+    selected_indices = data.get("selected_indices", [])
+
+    # Переключаем состояние (toggle)
+    if col_index in selected_indices:
+        selected_indices.remove(col_index)
+    else:
+        selected_indices.add(col_index) if isinstance(selected_indices, set) else None
+        # На случай если в state хранится list, приведем к списку обратно
+        if col_index in selected_indices:
+            selected_indices = [i for i in selected_indices if i != col_index]
+        else:
+            selected_indices.append(col_index)
+
+    # Обновляем данные в FSM
+    await state.update_data(selected_indices=selected_indices)
+
+    # Обновляем клавиатуру в том же сообщении
+    await callback_query.message.edit_reply_markup(
+        reply_markup=get_column_selection_keyboard(header, selected_indices)
+    )
+    await callback_query.answer()
+
+
+@setup_router.callback_query(
+    StateFilter(GoogleFileForm.enter_lang_columns), F.data == "save_settings"
+)
+async def save_settings(callback_query, state: FSMContext, session: AsyncSession, orm_user: User):
+    data = await state.get_data()
+    selected_indices = data.get("selected_indices", [])
+    header = data.get("header", [])
+
+    if len(selected_indices) != 2:
+        await callback_query.answer("Пожалуйста, выберите две колонки.", show_alert=True)
+        return
+
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files:
+        await callback_query.message.answer("Ошибка: файл не найден.")
+        return
+    vocab_file = user_vocab_files[0]
+
+    for index in selected_indices:
+        lang_column = UserVocabFileLangColumns(
+            id=uuid.uuid4(),
+            vocab_file_id=vocab_file.id,
+            lang=header[index][0],
+            column_name=header[index][2],
+        )
+        session.add(lang_column)
+    await session.commit()
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="Перевод слов", callback_data="select_training_mode:word"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="Перевод предложений", callback_data="select_training_mode:sentence"
+        )
+    )
+    await callback_query.message.answer(
+        "Настройки сохранены! Выберите режим тренировки:",
+        reply_markup=builder.as_markup(),
+    )
+    await state.set_state(GoogleFileForm.select_training_mode)
+
+
+@setup_router.callback_query(
+    StateFilter(GoogleFileForm.select_training_mode),
+    F.data.startswith("select_training_mode:"),
+)
+async def process_training_mode_selection(
+    callback_query, state: FSMContext, session: AsyncSession, orm_user: User
+):
+    mode = callback_query.data.split(":")[1]
+    orm_user.training_mode = mode
+    session.add(orm_user)
+    await session.commit()
+    await state.clear()
+    await callback_query.message.answer(
+        f"Вы выбрали режим '{mode}'. Начните тренировку командой /train."
+    )
+
+
+
+@setup_router.message(StateFilter(None), Command("reset"))
+async def reset_settings(message: Message, state: FSMContext):
+    await state.clear()
+    async with get_session() as session:
+        user = await get_or_create_user(session, message.from_user)
+        await delete_all_user_data(session, user.id)
+    await message.answer("Настройки сброшены! Теперь вы можете начать заново.")
