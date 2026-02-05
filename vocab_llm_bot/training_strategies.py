@@ -1,10 +1,9 @@
+from enum import Enum
 from functools import cache
 from string import Template
 from typing import TypedDict
 
-from openai import OpenAI
-
-from enum import Enum
+from openai import AsyncOpenAI
 
 from .config import Config
 from .google_dict_file import GoogleDictFile
@@ -26,41 +25,40 @@ Ask the user to translate the word "$word_from" from $lang_from to $lang_to.
 )
 
 
-
-
 class RoleMessage(str, Enum):
-    system = 'system'
-    assistant = 'assistant'
-    user = 'user'
+    system = "system"
+    assistant = "assistant"
+    user = "user"
 
 
 class Message(TypedDict):
     role: RoleMessage
     content: str
 
+
 @cache
-def get_openai_client() -> OpenAI:
-    return OpenAI(api_key=Config().openai_api_key)
+def get_openai_client() -> AsyncOpenAI:
+    return AsyncOpenAI(api_key=Config().openai_api_key)
 
 
-def get_completion(messages) -> str:
-    resp = get_openai_client().chat.completions.create(
-        model='gpt-5-nano',
-        messages=messages
+async def get_completion(messages: list[Message]) -> str:
+    resp = await get_openai_client().chat.completions.create(
+        model="gpt-5-nano",
+        messages=messages,  # type: ignore
     )
     assistant_resp = resp.choices[0].message.content
     return assistant_resp
 
 
-
 class WorldPairTrainStrategy:
-    def __init__(self,
-                 dict_file: GoogleDictFile,
-                 lang_from: str,
-                 lang_to:str,
-                 lang_from_col: str='A',
-                 lang_to_col: str='B'
-                 ):
+    def __init__(
+        self,
+        dict_file: GoogleDictFile,
+        lang_from: str,
+        lang_to: str,
+        lang_from_col: str = "A",
+        lang_to_col: str = "B",
+    ):
         self.dict_file = dict_file
         # Найти в файле колонки для lang_from и lang_to
         self.lang_from = lang_from
@@ -68,44 +66,50 @@ class WorldPairTrainStrategy:
         self.lang_from_col = lang_from_col
         self.lang_to_col = lang_to_col
 
-
         self._messages_ctx: list[Message] = []
         self._current_words: tuple[str, str] | None = None
 
-
-
-    def next_word(self, word_to: str, word_from: str) -> str:
-        """ Return assistant message"""
+    async def next_word(self, word_to: str, word_from: str) -> str:
+        """Return assistant message"""
         self._messages_ctx = [
-            {"role": "system", "content": START_PROMPT.substitute(
-                lang_from=self.lang_from,
-                lang_to=self.lang_to,
-                world_from=world_from,
-                world_to=word_to
-            )}
+            Message(
+                role=RoleMessage.system,
+                content=START_PROMPT.substitute(
+                    lang_from=self.lang_from,
+                    lang_to=self.lang_to,
+                    world_from=word_from,
+                    world_to=word_to,
+                ),
+            ),
         ]
-        assistant = self.get_completion(self._messages_ctx)
-        self._messages_ctx.append({"role": "assistant", "content": assistant})
+        assistant = await get_completion(self._messages_ctx)
+        self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
         return assistant
 
-    def analyze_user_input(self, user_input: str):
-        if user_input in ['I dont know', '--']:
-            self._messages_ctx.append({
-                "role": "system",
-                "content": 'User dont know. Show correct answer'
-            })
-            assistant = self.get_completion(self._messages_ctx)
-            self._messages_ctx.append({"role": "assistant", "content": assistant})
+    async def analyze_user_input(self, user_input: str):
+        if user_input in ["I dont know", "--"]:
+            self._messages_ctx.append(
+                {
+                    "role": RoleMessage.system,
+                    "content": "User dont know. Show correct answer",
+                }
+            )
+            assistant = await get_completion(self._messages_ctx)
+            self._messages_ctx.append(
+                {"role": RoleMessage.assistant, "content": assistant}
+            )
             return assistant
 
-        self._messages_ctx.append({"role": "user", "content": user_input})
-        self._messages_ctx.append({
-            "role": "system",
-            "content": 'If I answered correctly, write "correct" else "incorrect" and show translate'
-        })
+        self._messages_ctx.append({"role": RoleMessage.user, "content": user_input})
+        self._messages_ctx.append(
+            {
+                "role": RoleMessage.system,
+                "content": 'If I answered correctly, write "correct" else "incorrect" and show translate',
+            }
+        )
 
-        assistant = self.get_completion(self._messages_ctx)
-        self._messages_ctx.append({"role": "assistant", "content": assistant})
+        assistant = await get_completion(self._messages_ctx)
+        self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
         return assistant
 
 
@@ -128,40 +132,48 @@ class WordTranslationStrategy:
         self._messages_ctx: list[Message] = []
         self._current_words: tuple[str, str] | None = None
 
-    def next_word(self, word_to: str, word_from: str) -> str:
+    async def next_word(self, word_to: str, word_from: str) -> str:
         """Return assistant message"""
-        world_to, world_from = "hello", "привет"
         self._messages_ctx = [
-            {
-                "role": "system",
-                "content": WORD_TRANSLATION_PROMPT.substitute(
+            Message(
+                role=RoleMessage.system,
+                content=WORD_TRANSLATION_PROMPT.substitute(
                     lang_from=self.lang_from,
                     lang_to=self.lang_to,
-                    word_from=world_from,
+                    word_from=word_from,
                 ),
-            }
+            )
         ]
-        assistant = self.get_completion(self._messages_ctx)
-        self._messages_ctx.append({"role": "assistant", "content": assistant})
+        assistant = await get_completion(self._messages_ctx)
+        self._messages_ctx.append(
+            Message(role=RoleMessage.assistant, content=assistant)
+        )
         return assistant
 
-    def analyze_user_input(self, user_input: str):
+    async def analyze_user_input(self, user_input: str):
         if user_input in ["I dont know", "--"]:
             self._messages_ctx.append(
-                {"role": "system", "content": "User dont know. Show correct answer"}
+                Message(
+                    role=RoleMessage.system,
+                    content="User dont know. Show correct answer",
+                )
             )
-            assistant = self.get_completion(self._messages_ctx)
-            self._messages_ctx.append({"role": "assistant", "content": assistant})
+            assistant = await get_completion(self._messages_ctx)
+            self._messages_ctx.append(
+                Message(role=RoleMessage.assistant, content=assistant)
+            )
             return assistant
 
-        self._messages_ctx.append({"role": "user", "content": user_input})
+        self._messages_ctx.append(Message(role=RoleMessage.user, content=user_input))
         self._messages_ctx.append(
-            {
-                "role": "system",
-                "content": 'If I answered correctly, write "correct" else "incorrect" and show translate',
-            }
+            Message(
+                role=RoleMessage.system,
+                content='If I answered correctly, write "correct" else "incorrect" and show translate',
+            )
         )
 
-        assistant = self.get_completion(self._messages_ctx)
-        self._messages_ctx.append({"role": "assistant", "content": assistant})
+        assistant = await get_completion(self._messages_ctx)
+        self._messages_ctx.append(
+            Message(role=RoleMessage.assistant, content=assistant)
+        )
         return assistant

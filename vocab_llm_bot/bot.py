@@ -1,8 +1,7 @@
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot, Dispatcher
-from aiogram.types import Message, TelegramObject
-from sqlalchemy.ext.asyncio.session import AsyncSession
+from aiogram.types import TelegramObject
 
 from .config import Config
 from .database import create_all_tables, get_or_create_user, get_session
@@ -14,19 +13,24 @@ class DbSessionMiddleware(BaseMiddleware):
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
-        event: Message,
+        event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
         async with get_session() as session:
-            data["orm_user"] = await get_or_create_user(session, event.from_user)
-            data["session"] = session
+            if hasattr(event, "from_user"):
+                data["orm_user"] = await get_or_create_user(session, event.from_user)
+                data["session"] = session
             return await handler(event, data)
 
 
 # ========== MAIN ==========
 async def async_main():
+    token = Config().telegram_bot_token
+    if token is None:
+        raise ValueError("Telegram bot token is not set")
     await create_all_tables()
-    bot = Bot(token=Config().telegram_bot_token)
+
+    bot = Bot(token=token)
     dp = Dispatcher()
 
     dp.message.middleware(DbSessionMiddleware())

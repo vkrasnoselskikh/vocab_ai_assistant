@@ -25,10 +25,10 @@ class OauthAccessToken(Base):
     __tablename__ = "oauth_access_tokens"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
-    access_token: Mapped[str] = None
-    refresh_token: Mapped[str | None] = None
-    expires_in: Mapped[int | None] = None
-    expires_at: Mapped[datetime.datetime | None] = None
+    access_token: Mapped[str | None] = mapped_column(default=None)
+    refresh_token: Mapped[str | None] = mapped_column(default=None)
+    expires_in: Mapped[int | None] = mapped_column(default=None)
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
 
 
 class UserVocabFile(Base):
@@ -36,8 +36,8 @@ class UserVocabFile(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     sheet_id: Mapped[str]
-    sheet_name: Mapped[str | None] = None
-    external_name: Mapped[str | None] = None
+    sheet_name: Mapped[str | None] = mapped_column(default=None)
+    external_name: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime.datetime | None]
 
 class UserVocabFileLangColumns(Base):

@@ -1,8 +1,7 @@
 import asyncio
-import datetime
 import uuid
+from typing import Sequence
 
-from google.oauth2.credentials import Credentials
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -54,7 +53,9 @@ async def create_uesr_vocab_file(
     await session.commit()
 
 
-async def get_user_vocab_files(session: AsyncSession, user_id) -> list[UserVocabFile]:
+async def get_user_vocab_files(
+    session: AsyncSession, user_id
+) -> Sequence[UserVocabFile]:
     stmt = select(UserVocabFile).where(UserVocabFile.user_id == user_id)
     result = await session.execute(stmt)
     return result.scalars().all()
@@ -62,7 +63,7 @@ async def get_user_vocab_files(session: AsyncSession, user_id) -> list[UserVocab
 
 async def get_user_vocab_file_lang_columns(
     session: AsyncSession, vocab_file_id
-) -> list[UserVocabFileLangColumns]:
+) -> Sequence[UserVocabFileLangColumns]:
     stmt = select(UserVocabFileLangColumns).where(
         UserVocabFileLangColumns.vocab_file_id == vocab_file_id
     )
@@ -70,22 +71,18 @@ async def get_user_vocab_file_lang_columns(
     return result.scalars().all()
 
 
-
-async def delete_all_user_data(user_id: uuid.UUID):
-    async with get_session() as session:
-        await session.execute(
-            delete(UserVocabFileLangColumns).where(
-                UserVocabFileLangColumns.vocab_file_id.in_(
-                    select(UserVocabFile.id).where(UserVocabFile.user_id == user_id)
-                )
+async def delete_all_user_data(session: AsyncSession, user_id: uuid.UUID):
+    await session.execute(
+        delete(UserVocabFileLangColumns).where(
+            UserVocabFileLangColumns.vocab_file_id.in_(
+                select(UserVocabFile.id).where(UserVocabFile.user_id == user_id)
             )
         )
-        # Удаляем связанные записи в других таблицах, если необходимо
-        await session.execute(
-            delete(UserVocabFile).where(UserVocabFile.user_id == user_id)
-        )
+    )
+    # Удаляем связанные записи в других таблицах, если необходимо
+    await session.execute(delete(UserVocabFile).where(UserVocabFile.user_id == user_id))
 
-        await session.commit()
+    await session.commit()
 
 
 if __name__ == "__main__":

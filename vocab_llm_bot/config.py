@@ -1,10 +1,7 @@
 import logging
 from pathlib import Path
-from tkinter.constants import N
 
-from google_auth_oauthlib.flow import Flow
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing_extensions import NoDefault
 
 SETTINGS_PATH = Path(__file__).parent.parent / ".settings"
 SETTINGS_PATH.mkdir(exist_ok=True)

@@ -32,3 +32,8 @@ bot = "vocab_llm_bot.bot:main"
 
 [tool.uv]
 package=true
+
+[tool.ty.rules]
+index-out-of-bounds = "ignore"
+allowed-unresolved-imports = ["test.**", "!test.foo"]
+respect-type-ignore-comments = true

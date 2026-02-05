@@ -21,7 +21,9 @@ from ..models import User, UserVocabFileLangColumns
 
 setup_router = Router(name="setup")
 
-bot_email = GoogleServiceAccount().get_client_email()
+
+def get_bot_email():
+    return GoogleServiceAccount().get_client_email()
 
 
 # FSM только для настройки
@@ -43,7 +45,7 @@ async def cmd_start(message: Message, state: FSMContext):
                 text=(
                     "Вы ещё не добавили из Google Sheet ваш словарь .\n"
                     "Предоставьте доступ к файлу для почты: "
-                    + bot_email
+                    + get_bot_email()
                     + "\n"
                     + "А затем Пришлите ссылку на файл:"
                 )
@@ -59,6 +61,10 @@ async def cmd_start(message: Message, state: FSMContext):
 async def process_file_link(
     message: Message, state: FSMContext, session: AsyncSession, orm_user: User
 ):
+    if message.text is None:
+        await message.answer("Пожалуйста, введите ссылку на файл:")
+        return
+
     link = message.text.strip()
     await create_uesr_vocab_file(session, user_id=orm_user.id, google_file_id=link)
     await state.set_state(GoogleFileForm.enter_sheet_name)
@@ -152,13 +158,17 @@ async def process_lang_columns(callback_query, state: FSMContext):
 @setup_router.callback_query(
     StateFilter(GoogleFileForm.enter_lang_columns), F.data == "save_settings"
 )
-async def save_settings(callback_query, state: FSMContext, session: AsyncSession, orm_user: User):
+async def save_settings(
+    callback_query, state: FSMContext, session: AsyncSession, orm_user: User
+):
     data = await state.get_data()
     selected_indices = data.get("selected_indices", [])
     header = data.get("header", [])
 
     if len(selected_indices) != 2:
-        await callback_query.answer("Пожалуйста, выберите две колонки.", show_alert=True)
+        await callback_query.answer(
+            "Пожалуйста, выберите две колонки.", show_alert=True
+        )
         return
 
     user_vocab_files = await get_user_vocab_files(session, orm_user.id)
@@ -212,11 +222,10 @@ async def process_training_mode_selection(
     )
 
 
-
 @setup_router.message(StateFilter(None), Command("reset"))
-async def reset_settings(message: Message, state: FSMContext):
+async def reset_settings(
+    message: Message, state: FSMContext, session: AsyncSession, orm_user: User
+):
     await state.clear()
-    async with get_session() as session:
-        user = await get_or_create_user(session, message.from_user)
-        await delete_all_user_data(session, user.id)
+    await delete_all_user_data(session, orm_user.id)
     await message.answer("Настройки сброшены! Теперь вы можете начать заново.")

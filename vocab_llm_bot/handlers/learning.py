@@ -4,7 +4,7 @@ from aiogram import BaseMiddleware, F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, Message, TelegramObject
+from aiogram.types import InlineKeyboardButton, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +29,7 @@ class TrainingMiddleware(BaseMiddleware):
         handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
         event: Message,
         data: dict[str, Any],
-    ) -> Any:
+    ) -> Any:  # type: ignore
         session: AsyncSession = data["session"]
         orm_user: User = data["orm_user"]
 
@@ -64,7 +64,7 @@ class TrainingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-learning_router.message.middleware(TrainingMiddleware())
+learning_router.message.middleware(TrainingMiddleware())  # type: ignore
 
 
 async def get_words_for_training(
@@ -98,7 +98,6 @@ async def get_words_for_training(
         await session.commit()
         return words_in_progress + [word[0] for word in new_words]
     return words_in_progress
-
 
 
 @learning_router.message(Command("train"))
