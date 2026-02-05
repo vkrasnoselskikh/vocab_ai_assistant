@@ -52,7 +52,9 @@ This ensures the user is always focusing on a small, manageable set of vocabular
 
 ## Testing
 - Write unit tests for all functions
-- Use `pytest` for testing
+- Use command `pytest` for testing
+- Use command `ruff check` for linting
+- Use command `ty check` for type checking
 - Test edge cases and error handling
 
 ## Documentation

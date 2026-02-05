@@ -6,7 +6,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from vocab_llm_bot.config import DATABASE_URL
-from vocab_llm_bot.google_dict_file import GoogleDictFile
 from vocab_llm_bot.models import (
     Base,
     User,

@@ -34,6 +34,7 @@ async def async_main():
     dp = Dispatcher()
 
     dp.message.middleware(DbSessionMiddleware())
+    dp.callback_query.middleware(DbSessionMiddleware())
 
     dp.include_routers(setup.setup_router, learning.learning_router)
 
