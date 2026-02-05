@@ -4,9 +4,17 @@ from typing import Sequence
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.sql import and_
 
 from vocab_llm_bot.config import DATABASE_URL
-from vocab_llm_bot.models import Base, User, UserVocabFile, UserVocabFileLangColumns
+from vocab_llm_bot.google_dict_file import GoogleDictFile
+from vocab_llm_bot.models import (
+    Base,
+    User,
+    UserVocabFile,
+    UserVocabFileLangColumns,
+    UserWordProgress,
+)
 
 async_engine = create_async_engine(f"sqlite+aiosqlite:///{str(DATABASE_URL)}")
 get_session = async_sessionmaker(
@@ -83,6 +91,39 @@ async def delete_all_user_data(session: AsyncSession, user_id: uuid.UUID):
     await session.execute(delete(UserVocabFile).where(UserVocabFile.user_id == user_id))
 
     await session.commit()
+
+
+async def get_words_for_training(
+    session: AsyncSession, user_id, dict_file: GoogleDictFile
+):
+    words_in_progress = (
+        (
+            await session.execute(
+                select(UserWordProgress.word).where(
+                    and_(
+                        UserWordProgress.user_id == user_id,
+                        UserWordProgress.is_passed == False,  # noqa: E712
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    words_to_fetch = 10 - len(words_in_progress)
+    if words_to_fetch > 0:
+        new_words = [
+            dict_file.get_random_row_excluding(exclude=list(words_in_progress))
+            for _ in range(words_to_fetch)
+        ]
+        for word in new_words:
+            session.add(
+                UserWordProgress(user_id=user_id, word=word[0], is_passed=False)
+            )
+        await session.commit()
+        return words_in_progress + [word[0] for word in new_words]
+    return words_in_progress
 
 
 if __name__ == "__main__":

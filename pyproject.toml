@@ -21,7 +21,6 @@ dependencies = [
     "pandas>=2.2.3",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.7.1",
-    "pytest>=9.0.2",
     "python-calamine>=0.5.4",
     "sqlalchemy>=2.0.44",
     "uvicorn>=0.38.0",
@@ -30,10 +29,26 @@ dependencies = [
 [project.scripts]
 bot = "vocab_llm_bot.bot:main"
 
-[tool.uv]
-package=true
+[build-system]
+requires = ["uv_build>=0.9.30,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto" # or "strict"
 
 [tool.ty.rules]
 index-out-of-bounds = "ignore"
 allowed-unresolved-imports = ["test.**", "!test.foo"]
 respect-type-ignore-comments = true
+
+[tool.ruff]
+fix = true
+show-fixes = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.0",
+]
+# lint.ignore = []

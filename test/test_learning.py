@@ -1,7 +1,7 @@
 import pytest
+from mocks import MockGoogleDictFile, MockGoogleServiceAccount
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.mocks import MockGoogleDictFile, MockGoogleServiceAccount
 from vocab_llm_bot.handlers.learning import get_words_for_training
 from vocab_llm_bot.models import User
 

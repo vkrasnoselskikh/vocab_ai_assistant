@@ -86,7 +86,7 @@ class WorldPairTrainStrategy:
         self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
         return assistant
 
-    async def analyze_user_input(self, user_input: str):
+    async def analyze_user_input(self, user_input: str) -> str:
         if user_input in ["I dont know", "--"]:
             self._messages_ctx.append(
                 {

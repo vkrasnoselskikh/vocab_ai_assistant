@@ -95,6 +95,10 @@ def get_column_selection_keyboard(header_list: list[str], selected_indices: list
 async def process_sheet_name(
     message: Message, state: FSMContext, session: AsyncSession, orm_user: User
 ):
+    if message.text is None:
+        await message.answer("Ошибка: введено пустое значение.")
+        return
+
     sheet_name = message.text.strip()
     user_vocab_files = await get_user_vocab_files(session, orm_user.id)
     if not user_vocab_files:

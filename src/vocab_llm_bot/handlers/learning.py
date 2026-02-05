@@ -9,7 +9,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_user_vocab_file_lang_columns, get_user_vocab_files
+from ..database import (
+    get_user_vocab_file_lang_columns,
+    get_user_vocab_files,
+    get_words_for_training,
+)
 from ..google_dict_file import GoogleDictFile
 from ..models import User, UserWordProgress
 from ..training_strategies import WordTranslationStrategy, WorldPairTrainStrategy
@@ -67,39 +71,6 @@ class TrainingMiddleware(BaseMiddleware):
 learning_router.message.middleware(TrainingMiddleware())  # type: ignore
 
 
-async def get_words_for_training(
-    session: AsyncSession, user_id, dict_file: GoogleDictFile
-):
-    words_in_progress = (
-        (
-            await session.execute(
-                select(UserWordProgress.word).where(
-                    and_(
-                        UserWordProgress.user_id == user_id,
-                        UserWordProgress.is_passed == False,
-                    )
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    words_to_fetch = 10 - len(words_in_progress)
-    if words_to_fetch > 0:
-        new_words = [
-            dict_file.get_random_row_excluding(exclude=words_in_progress)
-            for _ in range(words_to_fetch)
-        ]
-        for word in new_words:
-            session.add(
-                UserWordProgress(user_id=user_id, word=word[0], is_passed=False)
-            )
-        await session.commit()
-        return words_in_progress + [word[0] for word in new_words]
-    return words_in_progress
-
-
 @learning_router.message(Command("train"))
 async def cmd_start_train(
     message: Message,
@@ -137,7 +108,7 @@ async def process_question(
         InlineKeyboardButton(text="Я не знаю", callback_data="dont_know_answer")
     )
     await message.answer(
-        training_strategy.next_word(word_to, word_from),
+        await training_strategy.next_word(word_to, word_from),
         reply_markup=builder.as_markup(),
     )
     await state.set_state(TrainState.wait_user_answer)
@@ -155,7 +126,13 @@ async def process_answer(
     user_input = message.text
     data = await state.get_data()
     current_word = data.get("current_word")
-    response = training_strategy.analyze_user_input(user_input)
+    if user_input == "Я не знаю":
+        await training_strategy.analyze_user_input(user_input)
+        await message.answer("Правильный ответ: " + current_word)
+        await state.set_state(TrainState.wait_user_answer)
+        return
+
+    response = await training_strategy.analyze_user_input(user_input)
     await message.answer(response)
 
     if "correct" in response.lower():
@@ -190,7 +167,7 @@ async def process_dont_know(
     state: FSMContext,
     training_strategy: WorldPairTrainStrategy,
 ):
-    response = training_strategy.analyze_user_input("--")
-    await callback_query.message.answer(response)
+    response = await training_strategy.analyze_user_input("--")
+    await callback_query.answer(response)
     await state.set_state(TrainState.gen_question)
-    await process_question(callback_query.message, state)
+    await process_question(callback_query, state)
