@@ -6,16 +6,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import (
     get_user_vocab_file_lang_columns,
     get_user_vocab_files,
-    get_words_for_training,
 )
 from ..google_dict_file import GoogleDictFile
-from ..models import User, UserWordProgress
+from ..models import User
 from ..training_strategies import WordTranslationStrategy, WorldPairTrainStrategy
 
 learning_router = Router(name="learning")
@@ -24,7 +22,6 @@ learning_router = Router(name="learning")
 class TrainState(StatesGroup):
     gen_question = State()
     wait_user_answer = State()
-    user_answered = State()
 
 
 class TrainingMiddleware(BaseMiddleware):
@@ -75,15 +72,11 @@ learning_router.message.middleware(TrainingMiddleware())  # type: ignore
 async def cmd_start_train(
     message: Message,
     state: FSMContext,
-    session: AsyncSession,
-    orm_user: User,
-    dict_file: GoogleDictFile,
 ):
-    words = await get_words_for_training(session, orm_user.id, dict_file)
-    await state.update_data(words_for_training=words)
     await message.answer("Начинаем тренировку!")
     await state.set_state(TrainState.gen_question)
-    await process_question(message, state)
+    # Redirect to process_question
+    await process_question(message, state, data=await state.get_data())
 
 
 @learning_router.message(StateFilter(TrainState.gen_question))
@@ -91,24 +84,26 @@ async def process_question(
     message: Message,
     state: FSMContext,
     training_strategy: WorldPairTrainStrategy,
+    dict_file: GoogleDictFile,
 ):
-    data = await state.get_data()
-    words = data.get("words_for_training", [])
-    if not words:
-        # Fetch new words if the list is empty
-        pass
+    word_data, row_index = dict_file.get_random_unlearned_word()
 
-    word_to, word_from = training_strategy.dict_file.get_random_row_excluding(
-        exclude=words
-    )
-    await state.update_data(current_word=word_to)
+    if word_data is None:
+        await message.answer("Поздравляю! Вы выучили все слова! 🎉")
+        await state.clear()
+        return
+
+    # Assuming word_from is in the first column and word_to is in the second
+    word_from, word_to = word_data[0], word_data[1]
+
+    await state.update_data(current_word_data=word_data, current_row_index=row_index)
 
     builder = InlineKeyboardBuilder()
     builder.add(
         InlineKeyboardButton(text="Я не знаю", callback_data="dont_know_answer")
     )
     await message.answer(
-        await training_strategy.next_word(word_to, word_from),
+        await training_strategy.next_word(word_to=word_to, word_from=word_from),
         reply_markup=builder.as_markup(),
     )
     await state.set_state(TrainState.wait_user_answer)
@@ -119,46 +114,47 @@ async def process_answer(
     message: Message,
     state: FSMContext,
     training_strategy: WorldPairTrainStrategy,
-    session: AsyncSession,
-    orm_user: User,
     dict_file: GoogleDictFile,
 ):
     user_input = message.text
     data = await state.get_data()
-    current_word = data.get("current_word")
+    current_word_data = data.get("current_word_data")
+    current_row_index = data.get("current_row_index")
+
+    if not current_word_data or not current_row_index:
+        await message.answer("Что-то пошло не так, давайте начнем заново.")
+        await state.clear()
+        return
+
+    # Assuming the correct answer is the second element in the pair
+    correct_answer = current_word_data[1]
+
     if user_input == "Я не знаю":
-        await training_strategy.analyze_user_input(user_input)
-        await message.answer("Правильный ответ: " + current_word)
-        await state.set_state(TrainState.wait_user_answer)
+        # Using analyze_user_input to get a "don't know" response from the LLM
+        response = await training_strategy.analyze_user_input("I dont know")
+        await message.answer(f"{response}\n\nПравильный ответ: {correct_answer}")
+        # Ask the same question again
+        await state.set_state(TrainState.gen_question)
+        await process_question(message, state, training_strategy, dict_file)
         return
 
     response = await training_strategy.analyze_user_input(user_input)
     await message.answer(response)
 
     if "correct" in response.lower():
-        await session.execute(
-            select(UserWordProgress)
-            .where(
-                and_(
-                    UserWordProgress.user_id == orm_user.id,
-                    UserWordProgress.word == current_word,
-                )
+        status_col_info = dict_file.get_status_column_info()
+        if status_col_info:
+            _, status_col_letter = status_col_info
+            dict_file.update_word_status(
+                current_row_index, status_col_letter, "learned"
             )
-            .with_for_update()
-        )
-        progress = await session.scalar()
-        if progress:
-            progress.is_passed = True
-            await session.commit()
+        else:
+            # Log or notify user that 'Status' column is missing
+            await message.answer("Внимание: колонка 'Status' не найдена в таблице.")
 
-        words = data.get("words_for_training", [])
-        words.remove(current_word)
-        if not words:
-            words = await get_words_for_training(session, orm_user.id, dict_file)
-        await state.update_data(words_for_training=words)
-
+    # Move to the next question
     await state.set_state(TrainState.gen_question)
-    await process_question(message, state)
+    await process_question(message, state, training_strategy, dict_file)
 
 
 @learning_router.callback_query(F.data == "dont_know_answer")
@@ -166,8 +162,22 @@ async def process_dont_know(
     callback_query: Message,
     state: FSMContext,
     training_strategy: WorldPairTrainStrategy,
+    dict_file: GoogleDictFile,
 ):
+    data = await state.get_data()
+    current_word_data = data.get("current_word_data")
+
+    if not current_word_data:
+        await callback_query.answer("Что-то пошло не так, давайте начнем заново.")
+        await state.clear()
+        return
+
+    correct_answer = current_word_data[1]
     response = await training_strategy.analyze_user_input("--")
-    await callback_query.answer(response)
+    await callback_query.message.answer(
+        f"{response}\n\nПравильный ответ: {correct_answer}"
+    )
+
+    # Ask a new question
     await state.set_state(TrainState.gen_question)
-    await process_question(callback_query, state)
+    await process_question(callback_query, state, training_strategy, dict_file)
