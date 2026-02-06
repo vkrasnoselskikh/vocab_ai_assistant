@@ -150,6 +150,15 @@ wheels = [
 ]
 
 [[package]]
+name = "async-cache"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/b8/57d264f9a9426558d1b62fb14e3c9a4bedb2afd892d50b6e381d1c36ac85/async_cache-1.2.1.tar.gz", hash = "sha256:985f29dfa0ce66d9b8bf2071fd9e207a19047b1ce5a980c8c27cdf6d166588d5", size = 3924, upload-time = "2026-01-23T13:34:47.776Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/9b/b881f188e60adc3a8ff8e21075fecde9eb472a79b72125c7c5d32e10f995/async_cache-1.2.1-py3-none-any.whl", hash = "sha256:e8418c71112e11b5785c5ed99bbae10262b74b3138c39ab18e952a8932557d78", size = 5238, upload-time = "2026-01-23T13:34:46.405Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1607,6 +1616,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
     { name = "aiosqlite" },
+    { name = "async-cache" },
     { name = "beautifulsoup4" },
     { name = "colorama" },
     { name = "fastapi" },
@@ -1639,6 +1649,7 @@ dev = [
 requires-dist = [
     { name = "aiogram", specifier = ">=3.22.0" },
     { name = "aiosqlite", specifier = ">=0.21.0" },
+    { name = "async-cache", specifier = ">=1.2.1" },
     { name = "beautifulsoup4", specifier = ">=4.14.2" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "fastapi", specifier = ">=0.122.0" },

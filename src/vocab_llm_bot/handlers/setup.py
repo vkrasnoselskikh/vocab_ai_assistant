@@ -200,7 +200,8 @@ async def save_settings(
 
     if len(selected_indices) != 2:
         await callback_query.answer(
-            "Пожалуйста, выберите две колонки.", show_alert=True
+            "Пожалуйста, выберите две колонки в которых вы храните слова и их переводы.",
+            show_alert=True,
         )
         return
 
@@ -255,7 +256,7 @@ async def process_training_mode_selection(
     )
 
 
-@setup_router.message(StateFilter(None), Command("reset"))
+@setup_router.message(Command("reset"))
 async def reset_settings(
     message: Message, state: FSMContext, session: AsyncSession, orm_user: User
 ):

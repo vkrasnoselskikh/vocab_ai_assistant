@@ -1,13 +1,10 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from google.genai import types
 
-from vocab_llm_bot.google_dict_file import GoogleDictFile
 from vocab_llm_bot.training_strategies import (
     Message,
     RoleMessage,
-    WordTranslationStrategy,
     WorldPairTrainStrategy,
     get_completion,
 )
@@ -101,31 +98,34 @@ async def test_get_completion_prepend_user():
 
 @pytest.mark.asyncio
 async def test_world_pair_strategy_flow():
-    mock_dict = MagicMock(spec=GoogleDictFile)
-    strategy = WorldPairTrainStrategy(mock_dict, "English", "Russian")
+    words = [{"word_from": "world", "word_to": "мир", "row_index": 2}]
+    strategy = WorldPairTrainStrategy(words, "English", "Russian")
 
     with patch(
         "vocab_llm_bot.training_strategies.get_completion",
-        AsyncMock(return_value="AI Response"),
-    ) as mock_get_completion:
+        AsyncMock(return_value="AI Response with correct answer"),
+    ):
         # 1. next_word
-        resp = await strategy.next_word("мир", "world")
-        assert resp == "AI Response"
+        resp = await strategy.next_word()
+        assert resp == "AI Response with correct answer"
         assert len(strategy._messages_ctx) == 2
         assert strategy._messages_ctx[0]["role"] == RoleMessage.system
         assert "world" in strategy._messages_ctx[0]["content"]
         assert strategy._messages_ctx[1] == {
             "role": RoleMessage.assistant,
-            "content": "AI Response",
+            "content": "AI Response with correct answer",
         }
 
         # 2. analyze_user_input
-        resp2 = await strategy.analyze_user_input("Correct translation")
-        assert resp2 == "AI Response"
+        resp2, is_correct = await strategy.analyze_user_input("Correct translation")
+        assert resp2 == "AI Response with correct answer"
+        assert is_correct is True
         assert len(strategy._messages_ctx) == 5
         assert strategy._messages_ctx[2] == {
             "role": RoleMessage.user,
             "content": "Correct translation",
         }
         assert strategy._messages_ctx[3]["role"] == RoleMessage.system
-        assert "correct" in strategy._messages_ctx[3]["content"]
+        assert "correct" in strategy._messages_ctx[3]["content"].lower()
+        # Word should be removed from the list after correct answer
+        assert len(strategy.words) == 0

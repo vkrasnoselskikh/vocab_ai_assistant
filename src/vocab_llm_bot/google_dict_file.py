@@ -1,6 +1,6 @@
 import logging
+import random
 from functools import cache
-from random import choice
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -133,9 +133,8 @@ class GoogleDictFile:
             logger.error(f"Failed to create 'Status' column: {err}")
             raise
 
-    def update_word_status(
-        self, row_index: int, status_column_letter: str, status: str
-    ):
+    def update_word_status(self, row_index: int, status: str):
+        status_column_letter = self.ensure_status_column()
         try:
             range_to_update = f"{self.sheet_name}!{status_column_letter}{row_index}"
             self.sheet.values().update(
@@ -147,9 +146,10 @@ class GoogleDictFile:
         except HttpError as err:
             logger.error(f"An error occurred while updating sheet: {err}")
 
-    def get_random_unlearned_word(
-        self, lang_cols: list[str]
-    ) -> tuple[list[str] | None, int | None]:
+    def get_unlearned_words(
+        self, lang_cols: list[str], count: int = 1
+    ) -> list[tuple[list[str], int]]:
+        """Returns n random unlearned words from the sheet."""
         status_col_letter = self.ensure_status_column()
 
         # Determine the maximum column we need to fetch
@@ -171,7 +171,7 @@ class GoogleDictFile:
         status_idx = _col_letter_to_index(status_col_letter) - 1
         lang_indices = [_col_letter_to_index(col) - 1 for col in lang_cols]
 
-        unlearned_rows = []
+        unlearned_rows: list[tuple[list[str], int]] = []
         for i, row in enumerate(all_values):
             row_num = i + 2
             # Check if status is NOT 'learned'
@@ -190,6 +190,7 @@ class GoogleDictFile:
                 unlearned_rows.append((row, row_num))
 
         if not unlearned_rows:
-            return None, None  # All words are learned or no words found
+            return []
 
-        return choice(unlearned_rows)
+        # Return random selection up to the requested count
+        return random.sample(unlearned_rows, min(len(unlearned_rows), count))

@@ -1,3 +1,4 @@
+import random
 from enum import Enum
 from functools import cache
 from string import Template
@@ -7,42 +8,53 @@ from google import genai
 from google.genai import types
 
 from .config import Config
-from .google_dict_file import GoogleDictFile
 
-START_PROMPT = Template("""You are a translation assistant.
-Below is the pair - word in $lang_from and translation in $lang_to.
-
-$lang_from: $world_from
-$lang_to: $world_to
-
-Rules:
-1. Output ONLY the generated sentence in $lang_from.
-2. No greetings, no explanations, no instructions.
-3. Don't use markdown. Use plain text only.
-
-Task:
-Come up with a short sentence using the word "$world_from" in $lang_from.
-""")
-
-WORD_TRANSLATION_PROMPT = Template(
+WORD_TRAIN_PAIR_PROMPT = Template(
     """You are a translation assistant.
 
+Below is the pair - word in $lang_from and translation in $lang_to.
+
+```csv
+$lang_from,$lang_to
+$word_from,$word_to
+```
+
 Rules:
-1. Output ONLY the word "$word_from".
-2. No greetings, no explanations, no instructions.
-3. Don't use markdown. Use plain text only.
+1. No greetings, no explanations, no instructions.
+2. Don't use markdown. Use plain text only.
 
 Task:
-Print the word "$word_from".
+Ask the user to translate the word ‘$word_from’ into $lang_to.
 """
 )
 
-USER_DONT_KNOW_PROMPT = Template(
-    "User does not know. Show the correct answer in $lang_to. No greetings. No markdown. Plain text only."
-)
+WORD_TRANSLATE_SENTENCE_PROMPT = Template("""You are a translation game.
+Below is the pair - word in $lang_from and translation in $lang_to from user vocabulary.
+```csv
+$lang_from,$lang_to
+$word_from,$word_to
+```
+
+Rules:
+1. No greetings, no explanations, no instructions.
+2. Don't use markdown. Use plain text only.
+
+Task:
+Come up with a simple sentence using the word ‘$world_from’.
+Write only this sentence in your answer.
+""")
+
+ANSWER_IF_DONT_KNOW = Template("✏️ >> $word_to")
+
+USER_DONT_KNOW_PROMPT = Template("I don't know. Translate your sentence to $lang_to")
+
 
 ANALYZE_ANSWER_PROMPT = Template(
-    'If I answered correctly, write "correct" else "incorrect" and show translation. Answer in $lang_to. No greetings. No markdown. Plain text only.'
+    """\
+    Analyze the my answer. If I translate to $lang_to correctly, write "✅ Сorrect"
+    else "❌ Incorrect" and show translation.
+    Answer in $lang_to.
+    """
 )
 
 
@@ -55,6 +67,12 @@ class RoleMessage(str, Enum):
 class Message(TypedDict):
     role: RoleMessage
     content: str
+
+
+class Word(TypedDict):
+    word_from: str
+    word_to: str
+    row_index: int
 
 
 @cache
@@ -96,52 +114,53 @@ async def get_completion(messages: list[Message]) -> str:
 class WorldPairTrainStrategy:
     def __init__(
         self,
-        dict_file: GoogleDictFile,
+        words: list[Word],
         lang_from: str,
         lang_to: str,
-        lang_from_col: str = "A",
-        lang_to_col: str = "B",
     ):
-        self.dict_file = dict_file
-        # Найти в файле колонки для lang_from и lang_to
+        self.words = words
         self.lang_from = lang_from
         self.lang_to = lang_to
-        self.lang_from_col = lang_from_col
-        self.lang_to_col = lang_to_col
 
         self._messages_ctx: list[Message] = []
-        self._current_words: tuple[str, str] | None = None
+        self._current_word: Word | None = None
 
-    async def next_word(self, word_to: str, word_from: str) -> str:
+    async def next_word(self) -> str | None:
         """Return assistant message"""
+        if not self.words:
+            return None
+
+        self._current_word = random.choice(self.words)
+        word_from = self._current_word["word_from"]
+        word_to = self._current_word["word_to"]
+
         self._messages_ctx = [
             Message(
                 role=RoleMessage.system,
-                content=START_PROMPT.substitute(
+                content=WORD_TRAIN_PAIR_PROMPT.substitute(
                     lang_from=self.lang_from,
                     lang_to=self.lang_to,
-                    world_from=word_from,
-                    world_to=word_to,
+                    word_from=word_from,
+                    word_to=word_to,
                 ),
             ),
         ]
-        assistant = await get_completion(self._messages_ctx)
+        assistant = f"Переведи слово '{word_from}'"
         self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
         return assistant
 
-    async def analyze_user_input(self, user_input: str) -> str:
+    async def analyze_user_input(self, user_input: str) -> tuple[str, bool]:
+        if self._current_word is None:
+            return "Ошибка: текущее слово не определено", False
+
         if user_input in ["I dont know", "--"]:
-            self._messages_ctx.append(
-                {
-                    "role": RoleMessage.system,
-                    "content": USER_DONT_KNOW_PROMPT.substitute(lang_to=self.lang_to),
-                }
+            assistant = ANSWER_IF_DONT_KNOW.substitute(
+                word_to=self._current_word["word_to"]
             )
-            assistant = await get_completion(self._messages_ctx)
             self._messages_ctx.append(
                 {"role": RoleMessage.assistant, "content": assistant}
             )
-            return assistant
+            return assistant, False
 
         self._messages_ctx.append({"role": RoleMessage.user, "content": user_input})
         self._messages_ctx.append(
@@ -153,37 +172,44 @@ class WorldPairTrainStrategy:
 
         assistant = await get_completion(self._messages_ctx)
         self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
-        return assistant
+
+        is_correct = "✅" in assistant
+
+        if is_correct and self._current_word in self.words:
+            self.words.remove(self._current_word)
+
+        return assistant, is_correct
 
 
-class WordTranslationStrategy:
+class WordTranslationSentenceStrategy:
     def __init__(
         self,
-        dict_file: GoogleDictFile,
+        words: list[Word],
         lang_from: str,
         lang_to: str,
-        lang_from_col: str = "A",
-        lang_to_col: str = "B",
     ):
-        self.dict_file = dict_file
-        # Найти в файле колонки для lang_from и lang_to
+        self.words = words
         self.lang_from = lang_from
         self.lang_to = lang_to
-        self.lang_from_col = lang_from_col
-        self.lang_to_col = lang_to_col
 
         self._messages_ctx: list[Message] = []
-        self._current_words: tuple[str, str] | None = None
+        self._current_word: Word | None = None
 
-    async def next_word(self, word_to: str, word_from: str) -> str:
+    async def next_word(self) -> str | None:
         """Return assistant message"""
+        if not self.words:
+            return None
+
+        self._current_word = random.choice(self.words)
+
         self._messages_ctx = [
             Message(
                 role=RoleMessage.system,
-                content=WORD_TRANSLATION_PROMPT.substitute(
+                content=WORD_TRAIN_PAIR_PROMPT.substitute(
                     lang_from=self.lang_from,
                     lang_to=self.lang_to,
-                    word_from=word_from,
+                    word_from=self._current_word["word_from"],
+                    word_to=self._current_word["word_to"],
                 ),
             )
         ]
@@ -193,7 +219,7 @@ class WordTranslationStrategy:
         )
         return assistant
 
-    async def analyze_user_input(self, user_input: str):
+    async def analyze_user_input(self, user_input: str) -> tuple[str, bool]:
         if user_input in ["I dont know", "--"]:
             self._messages_ctx.append(
                 Message(
@@ -205,7 +231,7 @@ class WordTranslationStrategy:
             self._messages_ctx.append(
                 Message(role=RoleMessage.assistant, content=assistant)
             )
-            return assistant
+            return assistant, False
 
         self._messages_ctx.append(Message(role=RoleMessage.user, content=user_input))
         self._messages_ctx.append(
@@ -219,4 +245,10 @@ class WordTranslationStrategy:
         self._messages_ctx.append(
             Message(role=RoleMessage.assistant, content=assistant)
         )
-        return assistant
+
+        is_correct = "✅" in assistant
+
+        if is_correct and self._current_word in self.words:
+            self.words.remove(self._current_word)
+
+        return assistant, is_correct
