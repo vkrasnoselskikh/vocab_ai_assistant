@@ -66,11 +66,72 @@ async def process_file_link(
         return
 
     link = message.text.strip()
-    await create_uesr_vocab_file(session, user_id=orm_user.id, google_file_id=link)
+    # Извлекаем ID файла из ссылки
+    if "spreadsheets/d/" in link:
+        google_file_id = link.split("spreadsheets/d/")[1].split("/")[0]
+    else:
+        google_file_id = link
+
+    await create_uesr_vocab_file(
+        session, user_id=orm_user.id, google_file_id=google_file_id
+    )
+
+    # Получаем список листов
+    google_dict_file = GoogleDictFile(google_sheet_id=google_file_id)
+    sheets = google_dict_file.get_sheets()
+
+    if not sheets:
+        await message.answer(
+            "Не удалось получить доступ к файлу или в нём нет листов. Проверьте права доступа."
+        )
+        return
+
+    builder = InlineKeyboardBuilder()
+    for sheet in sheets:
+        title = sheet.get("properties", {}).get("title", "Unknown")
+        builder.row(
+            InlineKeyboardButton(text=title, callback_data=f"select_sheet:{title}")
+        )
+
     await state.set_state(GoogleFileForm.enter_sheet_name)
     await message.answer(
-        "Отлично! Теперь укажите имя листа со словарём. Пожалуйста, введите его:"
+        "Отлично! Теперь выберите лист со словарём из списка ниже:",
+        reply_markup=builder.as_markup(),
     )
+
+
+@setup_router.callback_query(
+    StateFilter(GoogleFileForm.enter_sheet_name), F.data.startswith("select_sheet:")
+)
+async def process_sheet_selection(
+    callback_query, state: FSMContext, session: AsyncSession, orm_user: User
+):
+    sheet_name = callback_query.data.split(":")[1]
+
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files:
+        await callback_query.message.answer("Ошибка: файл не найден.")
+        return
+
+    vocab_file = user_vocab_files[0]
+    vocab_file.sheet_name = sheet_name
+    session.add(vocab_file)
+    await session.commit()
+
+    google_dict_file = GoogleDictFile(google_sheet_id=vocab_file.sheet_id)
+    google_dict_file.sheet_name = sheet_name
+    header = google_dict_file.get_header()
+
+    # Инициализируем данные в состоянии для отслеживания выбора пользователя
+    await state.update_data(header=header, selected_indices=[])
+
+    # Формируем список кнопок через функцию
+    await state.set_state(GoogleFileForm.enter_lang_columns)
+    await callback_query.message.answer(
+        f"Вы выбрали лист: {sheet_name}\nТеперь выберите языковые колонки:",
+        reply_markup=get_column_selection_keyboard(header, []),
+    )
+    await callback_query.answer()
 
 
 def get_column_selection_keyboard(header_list: list[str], selected_indices: list[int]):
@@ -89,40 +150,6 @@ def get_column_selection_keyboard(header_list: list[str], selected_indices: list
         )
     )
     return builder.as_markup()
-
-
-@setup_router.message(StateFilter(GoogleFileForm.enter_sheet_name), F.text)
-async def process_sheet_name(
-    message: Message, state: FSMContext, session: AsyncSession, orm_user: User
-):
-    if message.text is None:
-        await message.answer("Ошибка: введено пустое значение.")
-        return
-
-    sheet_name = message.text.strip()
-    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
-    if not user_vocab_files:
-        await message.answer("Ошибка: файл не найден.")
-        return
-
-    vocab_file = user_vocab_files[0]
-    vocab_file.sheet_name = sheet_name
-    session.add(vocab_file)
-    await session.commit()
-
-    google_dict_file = GoogleDictFile(google_sheet_id=vocab_file.sheet_id)
-    google_dict_file.sheet_name = sheet_name
-    header = google_dict_file.get_header()
-
-    # Инициализируем данные в состоянии для отслеживания выбора пользователя
-    await state.update_data(header=header, selected_indices=[])
-
-    # Формируем список кнопок через функцию
-    await state.set_state(GoogleFileForm.enter_lang_columns)
-    await message.answer(
-        "Выберите языковые колонки:",
-        reply_markup=get_column_selection_keyboard(header, []),
-    )
 
 
 @setup_router.callback_query(

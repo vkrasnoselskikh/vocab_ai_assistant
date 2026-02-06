@@ -3,7 +3,8 @@ from functools import cache
 from string import Template
 from typing import TypedDict
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 from .config import Config
 from .google_dict_file import GoogleDictFile
@@ -37,17 +38,39 @@ class Message(TypedDict):
 
 
 @cache
-def get_openai_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=Config().openai_api_key)
+def get_gemini_client() -> genai.Client:
+    return genai.Client(api_key=Config().gemini_api_key)
 
 
 async def get_completion(messages: list[Message]) -> str:
-    resp = await get_openai_client().chat.completions.create(
-        model="gpt-5-nano",
-        messages=messages,  # type: ignore
+    contents: list[types.Content] = []
+
+    for msg in messages:
+        # Простое правило: assistant -> model, всё остальное (user/system) -> user
+        role = "model" if msg["role"] == RoleMessage.assistant else "user"
+        text = msg["content"]
+
+        if contents and contents[-1].role == role:
+            # Если роль совпадает с предыдущим сообщением, склеиваем их (Gemini требует чередования)
+            if contents[-1].parts is None:
+                contents[-1].parts = []
+            contents[-1].parts.append(types.Part.from_text(text=text))
+        else:
+            contents.append(
+                types.Content(role=role, parts=[types.Part.from_text(text=text)])
+            )
+
+    # Gemini требует, чтобы диалог всегда начинался с 'user'
+    if contents and contents[0].role == "model":
+        contents.insert(
+            0, types.Content(role="user", parts=[types.Part.from_text(text="...")])
+        )
+
+    response = await get_gemini_client().aio.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=contents,
     )
-    assistant_resp = resp.choices[0].message.content
-    return assistant_resp
+    return response.text or ""
 
 
 class WorldPairTrainStrategy:

@@ -27,16 +27,17 @@ class TrainState(StatesGroup):
 class TrainingMiddleware(BaseMiddleware):
     async def __call__(
         self,
-        handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
-        event: Message,
+        handler: Callable[[Any, dict[str, Any]], Awaitable[Any]],
+        event: Any,
         data: dict[str, Any],
-    ) -> Any:  # type: ignore
+    ) -> Any:
         session: AsyncSession = data["session"]
         orm_user: User = data["orm_user"]
 
         user_vocab_files = await get_user_vocab_files(session, orm_user.id)
         if not user_vocab_files or not user_vocab_files[0].sheet_name:
-            await event.answer("Сначала настройте приложение командой /start")
+            if hasattr(event, "answer"):
+                await event.answer("Сначала настройте приложение командой /start")
             return
 
         dict_file = GoogleDictFile(google_sheet_id=user_vocab_files[0].sheet_id)
@@ -65,18 +66,21 @@ class TrainingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-learning_router.message.middleware(TrainingMiddleware())  # type: ignore
+learning_router.message.middleware(TrainingMiddleware())
+learning_router.callback_query.middleware(TrainingMiddleware())
 
 
 @learning_router.message(Command("train"))
 async def cmd_start_train(
     message: Message,
     state: FSMContext,
+    training_strategy: WorldPairTrainStrategy,
+    dict_file: GoogleDictFile,
 ):
     await message.answer("Начинаем тренировку!")
     await state.set_state(TrainState.gen_question)
     # Redirect to process_question
-    await process_question(message, state, data=await state.get_data())
+    await process_question(message, state, training_strategy, dict_file)
 
 
 @learning_router.message(StateFilter(TrainState.gen_question))
@@ -86,15 +90,20 @@ async def process_question(
     training_strategy: WorldPairTrainStrategy,
     dict_file: GoogleDictFile,
 ):
-    word_data, row_index = dict_file.get_random_unlearned_word()
-
-    if word_data is None:
+    lang_cols = [training_strategy.lang_from_col, training_strategy.lang_to_col]
+    res = dict_file.get_random_unlearned_word(lang_cols=lang_cols)
+    if res == (None, None):
         await message.answer("Поздравляю! Вы выучили все слова! 🎉")
         await state.clear()
         return
 
-    # Assuming word_from is in the first column and word_to is in the second
-    word_from, word_to = word_data[0], word_data[1]
+    word_data, row_index = res
+
+    from ..google_dict_file import _col_letter_to_index
+
+    # Извлекаем слова на основе выбранных колонок
+    word_from = word_data[_col_letter_to_index(training_strategy.lang_from_col) - 1]
+    word_to = word_data[_col_letter_to_index(training_strategy.lang_to_col) - 1]
 
     await state.update_data(current_word_data=word_data, current_row_index=row_index)
 
@@ -126,8 +135,12 @@ async def process_answer(
         await state.clear()
         return
 
-    # Assuming the correct answer is the second element in the pair
-    correct_answer = current_word_data[1]
+    # Извлекаем правильный ответ на основе выбранной колонки
+    from ..google_dict_file import _col_letter_to_index
+
+    correct_answer = current_word_data[
+        _col_letter_to_index(training_strategy.lang_to_col) - 1
+    ]
 
     if user_input == "Я не знаю":
         # Using analyze_user_input to get a "don't know" response from the LLM
@@ -157,9 +170,11 @@ async def process_answer(
     await process_question(message, state, training_strategy, dict_file)
 
 
-@learning_router.callback_query(F.data == "dont_know_answer")
+@learning_router.callback_query(
+    F.data == "dont_know_answer", StateFilter(TrainState.wait_user_answer)
+)
 async def process_dont_know(
-    callback_query: Message,
+    callback_query: Any,
     state: FSMContext,
     training_strategy: WorldPairTrainStrategy,
     dict_file: GoogleDictFile,
@@ -168,11 +183,17 @@ async def process_dont_know(
     current_word_data = data.get("current_word_data")
 
     if not current_word_data:
-        await callback_query.answer("Что-то пошло не так, давайте начнем заново.")
+        await callback_query.message.answer(
+            "Что-то пошло не так, давайте начнем заново."
+        )
         await state.clear()
         return
 
-    correct_answer = current_word_data[1]
+    from ..google_dict_file import _col_letter_to_index
+
+    correct_answer = current_word_data[
+        _col_letter_to_index(training_strategy.lang_to_col) - 1
+    ]
     response = await training_strategy.analyze_user_input("--")
     await callback_query.message.answer(
         f"{response}\n\nПравильный ответ: {correct_answer}"
@@ -180,4 +201,4 @@ async def process_dont_know(
 
     # Ask a new question
     await state.set_state(TrainState.gen_question)
-    await process_question(callback_query, state, training_strategy, dict_file)
+    await process_question(callback_query.message, state, training_strategy, dict_file)

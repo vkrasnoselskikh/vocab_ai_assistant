@@ -19,6 +19,13 @@ def _col_index_to_letter(index: int) -> str:
     return letters
 
 
+def _col_letter_to_index(letter: str) -> int:
+    index = 0
+    for char in letter:
+        index = index * 26 + (ord(char) - ord("A") + 1)
+    return index
+
+
 class GoogleDictFile:
     def __init__(self, google_sheet_id: str):
         self.google_sheet_id = google_sheet_id
@@ -115,40 +122,46 @@ class GoogleDictFile:
         except HttpError as err:
             logger.error(f"An error occurred while updating sheet: {err}")
 
-    def get_random_unlearned_word(self) -> tuple[list[str], int] | None:
+    def get_random_unlearned_word(
+        self, lang_cols: list[str]
+    ) -> tuple[list[str] | None, int | None]:
         status_col_info = self.get_status_column_info()
         if not status_col_info:
             logger.error("No 'Status' column found in the sheet.")
             return None, None
         _, status_col_letter = status_col_info
 
-        # Get the entire status column
-        status_col_range = f"{self.sheet_name}!{status_col_letter}2:{status_col_letter}"
+        # Get all data to filter empty rows and check status
+        # We fetch up to column Z, but we should ideally fetch up to the max of lang_cols and status_col
         result = (
             self.sheet.values()
-            .get(spreadsheetId=self.google_sheet_id, range=status_col_range)
+            .get(spreadsheetId=self.google_sheet_id, range=f"{self.sheet_name}!A2:Z")
             .execute()
         )
-        status_values = result.get("values", [])
+        all_values = result.get("values", [])
 
-        unlearned_row_indices = []
-        for i, row in enumerate(status_values):
-            # i + 2 is the actual row number in the sheet
-            if not row or (row and row[0].lower() != "learned"):
-                unlearned_row_indices.append(i + 2)
+        status_idx = _col_letter_to_index(status_col_letter) - 1
+        lang_indices = [_col_letter_to_index(col) - 1 for col in lang_cols]
 
-        if not unlearned_row_indices:
-            return None, None  # All words are learned
+        unlearned_rows = []
+        for i, row in enumerate(all_values):
+            row_num = i + 2
+            # Check if status is NOT 'learned'
+            status_val = row[status_idx].lower() if len(row) > status_idx else ""
+            if status_val == "learned":
+                continue
 
-        random_row_index = choice(unlearned_row_indices)
+            # Check if both language columns have values
+            has_data = True
+            for idx in lang_indices:
+                if len(row) <= idx or not str(row[idx]).strip():
+                    has_data = False
+                    break
 
-        # Now get the data for that row
-        row_range = f"{self.sheet_name}!A{random_row_index}:Z{random_row_index}"
-        result = (
-            self.sheet.values()
-            .get(spreadsheetId=self.google_sheet_id, range=row_range)
-            .execute()
-        )
+            if has_data:
+                unlearned_rows.append((row, row_num))
 
-        word_data = result.get("values", [[]])[0]
-        return word_data, random_row_index
+        if not unlearned_rows:
+            return None, None  # All words are learned or no words found
+
+        return choice(unlearned_rows)

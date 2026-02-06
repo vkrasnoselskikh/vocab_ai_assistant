@@ -109,7 +109,9 @@ def test_get_status_column_info(mocked_google_dict_file: GoogleDictFile):
 
 
 def test_get_random_unlearned_word(mocked_google_dict_file: GoogleDictFile):
-    word_data, row_index = mocked_google_dict_file.get_random_unlearned_word()
+    word_data, row_index = mocked_google_dict_file.get_random_unlearned_word(
+        lang_cols=["A", "B"]
+    )
     assert word_data == ["world", "мир", ""]
     assert row_index in [2, 4, 5]  # unlearned rows are 2 and 4, 5 is empty
 
