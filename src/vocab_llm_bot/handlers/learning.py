@@ -8,6 +8,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, Message
+from aiogram.utils.chat_action import ChatActionSender
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -156,7 +157,8 @@ async def process_question(
     training_strategy: TrainStrategy,
     dict_file: GoogleDictFile,
 ):
-    question_text = await training_strategy.next_word()
+    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+        question_text = await training_strategy.next_word()
 
     if question_text is None:
         await message.answer("Поздравляю! Вы выучили все слова! 🎉")
@@ -190,7 +192,8 @@ async def process_dont_know(
 
     logger.info(f"User {orm_user.id} skipped word: {current_word.get('word_from')}")
 
-    response, _ = await training_strategy.analyze_user_input("--")
+    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+        response, _ = await training_strategy.analyze_user_input("--")
     await message.answer(response)
 
     # Ask a new question
@@ -209,7 +212,8 @@ async def process_answer(
     if user_input is None:
         return
 
-    response, is_correct = await training_strategy.analyze_user_input(user_input)
+    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+        response, is_correct = await training_strategy.analyze_user_input(user_input)
     await message.answer(response)
 
     if is_correct:
