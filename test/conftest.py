@@ -44,7 +44,7 @@ async def dbsession(engine, tables):
     await trans.rollback()
     # put back the connection to the connection pool
     await connection.close()
-    await session.close()
+    await session.close()  # type: ignore
 
 
 @pytest.fixture

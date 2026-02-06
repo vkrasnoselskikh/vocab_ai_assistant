@@ -24,7 +24,7 @@ async def test_get_completion_basic_success():
     with patch(
         "vocab_llm_bot.training_strategies.get_gemini_client", return_value=mock_client
     ):
-        messages = [{"role": RoleMessage.user, "content": "Hi"}]
+        messages: list[Message] = [{"role": RoleMessage.user, "content": "Hi"}]
         result = await get_completion(messages)
 
         assert result == "Hello from Gemini"
@@ -47,7 +47,7 @@ async def test_get_completion_merging_roles():
     with patch(
         "vocab_llm_bot.training_strategies.get_gemini_client", return_value=mock_client
     ):
-        messages = [
+        messages: list[Message] = [
             {"role": RoleMessage.system, "content": "Instruction 1"},
             {"role": RoleMessage.user, "content": "Question"},
             {"role": RoleMessage.assistant, "content": "Answer"},
@@ -85,7 +85,7 @@ async def test_get_completion_prepend_user():
         "vocab_llm_bot.training_strategies.get_gemini_client", return_value=mock_client
     ):
         # Start with assistant message
-        messages = [{"role": RoleMessage.assistant, "content": "Hello"}]
+        messages: list[Message] = [{"role": RoleMessage.assistant, "content": "Hello"}]
         await get_completion(messages)
 
         args, kwargs = mock_client.aio.models.generate_content.call_args

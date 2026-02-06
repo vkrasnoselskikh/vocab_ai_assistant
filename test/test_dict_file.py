@@ -71,8 +71,10 @@ def mocked_google_dict_file():
 
         def values_get_side_effect(*args, **kwargs):
             range_str = kwargs.get("range", "")
-            if "C" in range_str:  # A simple way to distinguish the status column call
-                return MagicMock(execute=MagicMock(return_value=status_column_result))
+            # With the new dynamic range logic, the range is "English!A2:C" (or similar)
+            # The previous code checked for "C" in the range to return status, but now "C" is in the main data range too.
+            # However, the code first calls ensure_status_column which calls get_header.
+            # Then it calls values().get() with the full range.
             return MagicMock(execute=MagicMock(return_value=row_data_result))
 
         mock_values_get_method.side_effect = values_get_side_effect
@@ -109,9 +111,16 @@ def test_get_status_column_info(mocked_google_dict_file: GoogleDictFile):
 
 
 def test_get_random_unlearned_word(mocked_google_dict_file: GoogleDictFile):
-    word_data, row_index = mocked_google_dict_file.get_random_unlearned_word(
-        lang_cols=["A", "B"]
-    )
+    # Mocking all_values to match the expected structure since get_random_unlearned_word
+    # now uses ensure_status_column and a dynamic range.
+    with patch.object(mocked_google_dict_file.sheet.values(), "get") as mock_values_get:
+        mock_values_get.return_value.execute.return_value = {
+            "values": [["world", "мир", ""]]
+        }
+
+        word_data, row_index = mocked_google_dict_file.get_random_unlearned_word(
+            lang_cols=["A", "B"]
+        )
     assert word_data == ["world", "мир", ""]
     assert row_index in [2, 4, 5]  # unlearned rows are 2 and 4, 5 is empty
 
