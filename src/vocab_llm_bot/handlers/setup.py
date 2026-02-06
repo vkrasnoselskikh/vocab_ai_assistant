@@ -134,9 +134,11 @@ async def process_sheet_selection(
     await callback_query.answer()
 
 
-def get_column_selection_keyboard(header_list: list[str], selected_indices: list[int]):
+def get_column_selection_keyboard(
+    header_list: list[tuple[str, int, str]], selected_indices: list[int]
+):
     builder = InlineKeyboardBuilder()
-    for idx, col_name in enumerate(header_list):
+    for idx, (col_name, _, _) in enumerate(header_list):
         checkbox = "✅ " if idx in selected_indices else ""
         builder.row(
             InlineKeyboardButton(

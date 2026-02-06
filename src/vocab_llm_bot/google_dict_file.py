@@ -104,9 +104,34 @@ class GoogleDictFile:
     def get_status_column_info(self) -> tuple[str, str] | None:
         header = self.get_header()
         for col_name, _, col_letter in header:
-            if col_name.lower() == "status":
+            if str(col_name).lower() == "status":
                 return col_name, col_letter
         return None
+
+    def ensure_status_column(self) -> str:
+        """Checks for the 'Status' column and creates it if it doesn't exist. Returns the column letter."""
+        status_info = self.get_status_column_info()
+        if status_info:
+            return status_info[1]
+
+        header = self.get_header()
+        next_col_index = len(header) + 1
+        status_col_letter = _col_index_to_letter(next_col_index)
+
+        try:
+            range_to_update = f"{self.sheet_name}!{status_col_letter}1"
+            self.sheet.values().update(
+                spreadsheetId=self.google_sheet_id,
+                range=range_to_update,
+                valueInputOption="USER_ENTERED",
+                body={"values": [["Status"]]},
+            ).execute()
+            self.get_header.cache_clear()
+            logger.info(f"Created 'Status' column at {status_col_letter}")
+            return status_col_letter
+        except HttpError as err:
+            logger.error(f"Failed to create 'Status' column: {err}")
+            raise
 
     def update_word_status(
         self, row_index: int, status_column_letter: str, status: str
@@ -125,17 +150,20 @@ class GoogleDictFile:
     def get_random_unlearned_word(
         self, lang_cols: list[str]
     ) -> tuple[list[str] | None, int | None]:
-        status_col_info = self.get_status_column_info()
-        if not status_col_info:
-            logger.error("No 'Status' column found in the sheet.")
-            return None, None
-        _, status_col_letter = status_col_info
+        status_col_letter = self.ensure_status_column()
+
+        # Determine the maximum column we need to fetch
+        all_cols = lang_cols + [status_col_letter]
+        max_col_index = max(_col_letter_to_index(col) for col in all_cols)
+        max_col_letter = _col_index_to_letter(max_col_index)
 
         # Get all data to filter empty rows and check status
-        # We fetch up to column Z, but we should ideally fetch up to the max of lang_cols and status_col
         result = (
             self.sheet.values()
-            .get(spreadsheetId=self.google_sheet_id, range=f"{self.sheet_name}!A2:Z")
+            .get(
+                spreadsheetId=self.google_sheet_id,
+                range=f"{self.sheet_name}!A2:{max_col_letter}",
+            )
             .execute()
         )
         all_values = result.get("values", [])

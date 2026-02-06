@@ -99,6 +99,10 @@ async def process_question(
 
     word_data, row_index = res
 
+    if word_data is None:
+        await message.answer("Что-то пошло не так при получении слова.")
+        return
+
     from ..google_dict_file import _col_letter_to_index
 
     # Извлекаем слова на основе выбранных колонок
@@ -142,10 +146,13 @@ async def process_answer(
         _col_letter_to_index(training_strategy.lang_to_col) - 1
     ]
 
+    if user_input is None:
+        return
+
     if user_input == "Я не знаю":
         # Using analyze_user_input to get a "don't know" response from the LLM
         response = await training_strategy.analyze_user_input("I dont know")
-        await message.answer(f"{response}\n\nПравильный ответ: {correct_answer}")
+        await message.answer(response)
         # Ask the same question again
         await state.set_state(TrainState.gen_question)
         await process_question(message, state, training_strategy, dict_file)

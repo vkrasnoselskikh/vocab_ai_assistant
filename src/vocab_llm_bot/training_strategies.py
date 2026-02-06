@@ -9,20 +9,41 @@ from google.genai import types
 from .config import Config
 from .google_dict_file import GoogleDictFile
 
-START_PROMPT = Template("""You is translate assistant.
+START_PROMPT = Template("""You are a translation assistant.
 Below is the pair - word in $lang_from and translation in $lang_to.
 
 $lang_from: $world_from
 $lang_to: $world_to
 
-Come up with a short sentence using this word. This sentence will be suggested for translation by the user.
-Ask user - how the sentence is translated from $lang_to to $lang_from?
+Rules:
+1. Don't greet the user. Start immediately without any introductory phrases.
+2. Communicate with the user ONLY in $lang_to.
+3. Don't use markdown. Use plain text only.
+
+Task:
+Come up with a short sentence using the word "$world_from".
+Ask the user to translate this sentence from $lang_to to $lang_from.
 """)
 
 WORD_TRANSLATION_PROMPT = Template(
     """You are a translation assistant.
+
+Rules:
+1. Don't greet the user. Start immediately without any introductory phrases.
+2. Communicate with the user ONLY in $lang_to.
+3. Don't use markdown. Use plain text only.
+
+Task:
 Ask the user to translate the word "$word_from" from $lang_from to $lang_to.
 """
+)
+
+USER_DONT_KNOW_PROMPT = Template(
+    "User does not know. Show the correct answer in $lang_to. No greetings. No markdown. Plain text only."
+)
+
+ANALYZE_ANSWER_PROMPT = Template(
+    'If I answered correctly, write "correct" else "incorrect" and show translation. Answer in $lang_to. No greetings. No markdown. Plain text only.'
 )
 
 
@@ -114,7 +135,7 @@ class WorldPairTrainStrategy:
             self._messages_ctx.append(
                 {
                     "role": RoleMessage.system,
-                    "content": "User dont know. Show correct answer",
+                    "content": USER_DONT_KNOW_PROMPT.substitute(lang_to=self.lang_to),
                 }
             )
             assistant = await get_completion(self._messages_ctx)
@@ -127,7 +148,7 @@ class WorldPairTrainStrategy:
         self._messages_ctx.append(
             {
                 "role": RoleMessage.system,
-                "content": 'If I answered correctly, write "correct" else "incorrect" and show translate',
+                "content": ANALYZE_ANSWER_PROMPT.substitute(lang_to=self.lang_to),
             }
         )
 
@@ -178,7 +199,7 @@ class WordTranslationStrategy:
             self._messages_ctx.append(
                 Message(
                     role=RoleMessage.system,
-                    content="User dont know. Show correct answer",
+                    content=USER_DONT_KNOW_PROMPT.substitute(lang_to=self.lang_to),
                 )
             )
             assistant = await get_completion(self._messages_ctx)
@@ -191,7 +212,7 @@ class WordTranslationStrategy:
         self._messages_ctx.append(
             Message(
                 role=RoleMessage.system,
-                content='If I answered correctly, write "correct" else "incorrect" and show translate',
+                content=ANALYZE_ANSWER_PROMPT.substitute(lang_to=self.lang_to),
             )
         )
 
