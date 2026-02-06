@@ -77,7 +77,9 @@ async def cmd_start_train(
     training_strategy: WorldPairTrainStrategy,
     dict_file: GoogleDictFile,
 ):
-    await message.answer("Начинаем тренировку!")
+    await message.answer(
+        f"Переведите слова с {training_strategy.lang_from} на {training_strategy.lang_to}!"
+    )
     await state.set_state(TrainState.gen_question)
     # Redirect to process_question
     await process_question(message, state, training_strategy, dict_file)

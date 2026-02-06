@@ -16,25 +16,24 @@ $lang_from: $world_from
 $lang_to: $world_to
 
 Rules:
-1. Don't greet the user. Start immediately without any introductory phrases.
-2. Communicate with the user ONLY in $lang_to.
+1. Output ONLY the generated sentence in $lang_from.
+2. No greetings, no explanations, no instructions.
 3. Don't use markdown. Use plain text only.
 
 Task:
-Come up with a short sentence using the word "$world_from".
-Ask the user to translate this sentence from $lang_to to $lang_from.
+Come up with a short sentence using the word "$world_from" in $lang_from.
 """)
 
 WORD_TRANSLATION_PROMPT = Template(
     """You are a translation assistant.
 
 Rules:
-1. Don't greet the user. Start immediately without any introductory phrases.
-2. Communicate with the user ONLY in $lang_to.
+1. Output ONLY the word "$word_from".
+2. No greetings, no explanations, no instructions.
 3. Don't use markdown. Use plain text only.
 
 Task:
-Ask the user to translate the word "$word_from" from $lang_from to $lang_to.
+Print the word "$word_from".
 """
 )
 
