@@ -7,6 +7,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "aiocache"
+version = "0.12.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/64/b945b8025a9d1e6e2138845f4022165d3b337f55f50984fbc6a4c0a1e355/aiocache-0.12.3.tar.gz", hash = "sha256:f528b27bf4d436b497a1d0d1a8f59a542c153ab1e37c3621713cb376d44c4713", size = 132196, upload-time = "2024-09-25T13:20:23.823Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/d7/15d67e05b235d1ed8c3ce61688fe4d84130e72af1657acadfaac3479f4cf/aiocache-0.12.3-py2.py3-none-any.whl", hash = "sha256:889086fc24710f431937b87ad3720a289f7fc31c4fd8b68e9f918b9bacd8270d", size = 28199, upload-time = "2024-09-25T13:20:22.688Z" },
+]
+
+[[package]]
 name = "aiofiles"
 version = "24.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -147,15 +156,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a3/73/199a98fc2dae33535d6b8e8e6ec01f8c1d76c9adb096c6b7d64823038cde/anyio-4.8.0.tar.gz", hash = "sha256:1d9fe889df5212298c0c0723fa20479d1b94883a2df44bd3897aa91083316f7a", size = 181126, upload-time = "2025-01-05T13:13:11.095Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/eb/e7f063ad1fec6b3178a3cd82d1a3c4de82cccf283fc42746168188e1cdd5/anyio-4.8.0-py3-none-any.whl", hash = "sha256:b5011f270ab5eb0abf13385f851315585cc37ef330dd88e27ec3d34d651fd47a", size = 96041, upload-time = "2025-01-05T13:13:07.985Z" },
-]
-
-[[package]]
-name = "async-cache"
-version = "1.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fb/b8/57d264f9a9426558d1b62fb14e3c9a4bedb2afd892d50b6e381d1c36ac85/async_cache-1.2.1.tar.gz", hash = "sha256:985f29dfa0ce66d9b8bf2071fd9e207a19047b1ce5a980c8c27cdf6d166588d5", size = 3924, upload-time = "2026-01-23T13:34:47.776Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/9b/b881f188e60adc3a8ff8e21075fecde9eb472a79b72125c7c5d32e10f995/async_cache-1.2.1-py3-none-any.whl", hash = "sha256:e8418c71112e11b5785c5ed99bbae10262b74b3138c39ab18e952a8932557d78", size = 5238, upload-time = "2026-01-23T13:34:46.405Z" },
 ]
 
 [[package]]
@@ -1614,9 +1614,9 @@ name = "vocab-llm-bot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiocache" },
     { name = "aiogram" },
     { name = "aiosqlite" },
-    { name = "async-cache" },
     { name = "beautifulsoup4" },
     { name = "colorama" },
     { name = "fastapi" },
@@ -1647,9 +1647,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiocache", specifier = ">=0.12.3" },
     { name = "aiogram", specifier = ">=3.22.0" },
     { name = "aiosqlite", specifier = ">=0.21.0" },
-    { name = "async-cache", specifier = ">=1.2.1" },
     { name = "beautifulsoup4", specifier = ">=4.14.2" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "fastapi", specifier = ">=0.122.0" },

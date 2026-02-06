@@ -220,7 +220,18 @@ async def save_settings(
         )
         session.add(lang_column)
     await session.commit()
+    await callback_query.answer("Колонки успешно сохранены!")
+    await state.set_state(GoogleFileForm.select_training_mode)
+    await select_training_mode(callback_query.message, state, session, orm_user)
 
+
+@setup_router.message(Command("setup"))
+async def select_training_mode(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    orm_user: User,
+):
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
@@ -232,15 +243,14 @@ async def save_settings(
             text="Перевод предложений", callback_data="select_training_mode:sentence"
         )
     )
-    await callback_query.message.answer(
-        "Настройки сохранены! Выберите режим тренировки:",
+    await message.answer(
+        "Выберите режим тренировки:",
         reply_markup=builder.as_markup(),
     )
     await state.set_state(GoogleFileForm.select_training_mode)
 
 
 @setup_router.callback_query(
-    StateFilter(GoogleFileForm.select_training_mode),
     F.data.startswith("select_training_mode:"),
 )
 async def process_training_mode_selection(
@@ -251,6 +261,8 @@ async def process_training_mode_selection(
     session.add(orm_user)
     await session.commit()
     await state.clear()
+
+    await callback_query.answer()
     await callback_query.message.answer(
         f"Вы выбрали режим '{mode}'. Начните тренировку командой /train."
     )
@@ -262,4 +274,6 @@ async def reset_settings(
 ):
     await state.clear()
     await delete_all_user_data(session, orm_user.id)
-    await message.answer("Настройки сброшены! Теперь вы можете начать заново.")
+    await message.answer(
+        "Настройки сброшены! Теперь вы можете начать все заново. /start"
+    )

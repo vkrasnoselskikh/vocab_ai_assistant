@@ -1,13 +1,19 @@
+import logging
 import random
+from abc import ABC, abstractmethod
 from enum import Enum
 from functools import cache
 from string import Template
 from typing import TypedDict
 
+from attr import s
 from google import genai
 from google.genai import types
+from pandas.tests.indexing.multiindex.test_indexing_slow import n
 
 from .config import Config
+
+logger = logging.getLogger(__name__)
 
 WORD_TRAIN_PAIR_PROMPT = Template(
     """You are a translation assistant.
@@ -40,7 +46,7 @@ Rules:
 2. Don't use markdown. Use plain text only.
 
 Task:
-Come up with a simple sentence using the word ‘$world_from’.
+Come up with a simple sentence using the word ‘$word_from’.
 Write only this sentence in your answer.
 """)
 
@@ -111,30 +117,56 @@ async def get_completion(messages: list[Message]) -> str:
     return response.text or ""
 
 
-class WorldPairTrainStrategy:
+class TrainStrategy(ABC):
     def __init__(
         self,
-        words: list[Word],
         lang_from: str,
         lang_to: str,
     ):
-        self.words = words
+        self.words = []
         self.lang_from = lang_from
         self.lang_to = lang_to
 
-        self._messages_ctx: list[Message] = []
-        self._current_word: Word | None = None
+        self.messages_ctx: list[Message] = []
+        self.current_word: Word | None = None
+        logger.info(
+            f"init {self.__class__.__name__} with {self.lang_from} -> {self.lang_to}"
+        )
 
+    def set_words(self, words: list[Word]):
+        self.words = words
+        logger.info(f"set {self.__class__.__name__} with {len(words)} words")
+
+    def choice_word(self) -> Word:
+        if not len(self.words):
+            raise ValueError("No words")
+        self.current_word = random.choice(self.words)
+        logger.info(f"choise {self.__class__.__name__}  {self.current_word=}")
+        return self.current_word
+
+    def get_current_word(self) -> Word:
+        if self.current_word is None:
+            raise ValueError("No current word")
+        return self.current_word
+
+    @abstractmethod
+    async def next_word(self) -> str | None: ...
+
+    @abstractmethod
+    async def analyze_user_input(self, user_input: str) -> tuple[str, bool]: ...
+
+
+class WorldPairTrainStrategy(TrainStrategy):
     async def next_word(self) -> str | None:
         """Return assistant message"""
-        if not self.words:
+        try:
+            res = self.choice_word()
+        except ValueError:
             return None
+        word_from = res["word_from"]
+        word_to = res["word_to"]
 
-        self._current_word = random.choice(self.words)
-        word_from = self._current_word["word_from"]
-        word_to = self._current_word["word_to"]
-
-        self._messages_ctx = [
+        self.messages_ctx = [
             Message(
                 role=RoleMessage.system,
                 content=WORD_TRAIN_PAIR_PROMPT.substitute(
@@ -146,109 +178,92 @@ class WorldPairTrainStrategy:
             ),
         ]
         assistant = f"Переведи слово '{word_from}'"
-        self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
+        self.messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
         return assistant
 
     async def analyze_user_input(self, user_input: str) -> tuple[str, bool]:
-        if self._current_word is None:
-            return "Ошибка: текущее слово не определено", False
+        try:
+            current_word = self.get_current_word()
+        except ValueError as e:
+            return f"Ошибка: {str(e)}", False
 
         if user_input in ["I dont know", "--"]:
-            assistant = ANSWER_IF_DONT_KNOW.substitute(
-                word_to=self._current_word["word_to"]
-            )
-            self._messages_ctx.append(
+            assistant = ANSWER_IF_DONT_KNOW.substitute(word_to=current_word["word_to"])
+            self.messages_ctx.append(
                 {"role": RoleMessage.assistant, "content": assistant}
             )
             return assistant, False
 
-        self._messages_ctx.append({"role": RoleMessage.user, "content": user_input})
-        self._messages_ctx.append(
+        self.messages_ctx.append({"role": RoleMessage.user, "content": user_input})
+        self.messages_ctx.append(
             {
                 "role": RoleMessage.system,
                 "content": ANALYZE_ANSWER_PROMPT.substitute(lang_to=self.lang_to),
             }
         )
 
-        assistant = await get_completion(self._messages_ctx)
-        self._messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
+        assistant = await get_completion(self.messages_ctx)
+        self.messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
 
         is_correct = "✅" in assistant
 
-        if is_correct and self._current_word in self.words:
-            self.words.remove(self._current_word)
+        if is_correct:
+            self.words.remove(current_word)
 
         return assistant, is_correct
 
 
-class WordTranslationSentenceStrategy:
-    def __init__(
-        self,
-        words: list[Word],
-        lang_from: str,
-        lang_to: str,
-    ):
-        self.words = words
-        self.lang_from = lang_from
-        self.lang_to = lang_to
-
-        self._messages_ctx: list[Message] = []
-        self._current_word: Word | None = None
-
+class WordTranslationSentenceStrategy(TrainStrategy):
     async def next_word(self) -> str | None:
         """Return assistant message"""
-        if not self.words:
+        try:
+            res = self.choice_word()
+        except ValueError:
             return None
 
-        self._current_word = random.choice(self.words)
-
-        self._messages_ctx = [
+        self.messages_ctx = [
             Message(
                 role=RoleMessage.system,
                 content=WORD_TRANSLATE_SENTENCE_PROMPT.substitute(
                     lang_from=self.lang_from,
                     lang_to=self.lang_to,
-                    word_from=self._current_word["word_from"],
-                    word_to=self._current_word["word_to"],
+                    word_from=res["word_from"],
+                    word_to=res["word_to"],
                 ),
             )
         ]
-        assistant = await get_completion(self._messages_ctx)
-        self._messages_ctx.append(
-            Message(role=RoleMessage.assistant, content=assistant)
-        )
+        assistant = await get_completion(self.messages_ctx)
+        self.messages_ctx.append(Message(role=RoleMessage.assistant, content=assistant))
         return assistant
 
     async def analyze_user_input(self, user_input: str) -> tuple[str, bool]:
         if user_input in ["I dont know", "--"]:
-            self._messages_ctx.append(
+            self.messages_ctx.append(
                 Message(
                     role=RoleMessage.system,
                     content=USER_DONT_KNOW_PROMPT.substitute(lang_to=self.lang_to),
                 )
             )
-            assistant = await get_completion(self._messages_ctx)
-            self._messages_ctx.append(
+            assistant = await get_completion(self.messages_ctx)
+            self.messages_ctx.append(
                 Message(role=RoleMessage.assistant, content=assistant)
             )
             return assistant, False
 
-        self._messages_ctx.append(Message(role=RoleMessage.user, content=user_input))
-        self._messages_ctx.append(
+        self.messages_ctx.append(Message(role=RoleMessage.user, content=user_input))
+        self.messages_ctx.append(
             Message(
                 role=RoleMessage.system,
                 content=ANALYZE_ANSWER_PROMPT.substitute(lang_to=self.lang_to),
             )
         )
 
-        assistant = await get_completion(self._messages_ctx)
-        self._messages_ctx.append(
-            Message(role=RoleMessage.assistant, content=assistant)
-        )
+        assistant = await get_completion(self.messages_ctx)
+        self.messages_ctx.append(Message(role=RoleMessage.assistant, content=assistant))
 
         is_correct = "✅" in assistant
 
-        if is_correct and self._current_word in self.words:
-            self.words.remove(self._current_word)
+        if is_correct and self.current_word in self.words:
+            self.words.remove(self.current_word)
 
         return assistant, is_correct

@@ -69,8 +69,10 @@ async def get_user_vocab_files(
 async def get_user_vocab_file_lang_columns(
     session: AsyncSession, vocab_file_id
 ) -> Sequence[UserVocabFileLangColumns]:
-    stmt = select(UserVocabFileLangColumns).where(
-        UserVocabFileLangColumns.vocab_file_id == vocab_file_id
+    stmt = (
+        select(UserVocabFileLangColumns)
+        .where(UserVocabFileLangColumns.vocab_file_id == vocab_file_id)
+        .order_by(UserVocabFileLangColumns.lang)
     )
     result = await session.execute(stmt)
     return result.scalars().all()
