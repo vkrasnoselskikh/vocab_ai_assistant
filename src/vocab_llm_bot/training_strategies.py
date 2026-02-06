@@ -205,7 +205,7 @@ class WordTranslationSentenceStrategy:
         self._messages_ctx = [
             Message(
                 role=RoleMessage.system,
-                content=WORD_TRAIN_PAIR_PROMPT.substitute(
+                content=WORD_TRANSLATE_SENTENCE_PROMPT.substitute(
                     lang_from=self.lang_from,
                     lang_to=self.lang_to,
                     word_from=self._current_word["word_from"],

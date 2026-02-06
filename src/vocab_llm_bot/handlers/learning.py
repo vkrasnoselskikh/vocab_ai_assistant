@@ -37,9 +37,9 @@ async def get_cached_training_strategy(
     user_id: int, training_mode: str, lang_from: str, lang_to: str
 ) -> WorldPairTrainStrategy | WordTranslationSentenceStrategy:
     if training_mode == "word":
-        strategy_class = WordTranslationSentenceStrategy
-    else:
         strategy_class = WorldPairTrainStrategy
+    else:
+        strategy_class = WordTranslationSentenceStrategy
 
     return strategy_class(
         words=[],
