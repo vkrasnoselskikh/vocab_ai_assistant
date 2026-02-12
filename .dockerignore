@@ -1,0 +1,35 @@
+# VCS
+.git
+.gitignore
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Test and local artifacts
+.coverage
+htmlcov/
+*.log
+
+# Editor/OS files
+.DS_Store
+.vscode/
+.idea/
+
+# Local secrets and config
+.env
+.conf/
+
+# Build and dist
+build/
+dist/
+*.egg-info/
