@@ -20,7 +20,6 @@ COPY --chown=${APP_UID}:${APP_GID} pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY --chown=${APP_UID}:${APP_GID} src ./src
-COPY --chown=${APP_UID}:${APP_GID} .env.example ./.env.example
 
 USER ${APP_UID}:${APP_GID}
 
