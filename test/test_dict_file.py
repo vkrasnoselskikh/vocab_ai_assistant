@@ -124,9 +124,7 @@ def test_get_unlearned_words(mocked_google_dict_file: GoogleDictFile):
 
 
 def test_update_word_status(mocked_google_dict_file: GoogleDictFile):
-    mocked_google_dict_file.update_word_status(
-        row_index=3, status_column_letter="C", status="learned"
-    )
+    mocked_google_dict_file.update_word_status(row_index=3, status="learned")
     update_mock = mocked_google_dict_file.sheet.values().update
     update_mock.assert_called_once_with(
         spreadsheetId="fake_id",

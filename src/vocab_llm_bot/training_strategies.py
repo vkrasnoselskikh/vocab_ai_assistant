@@ -6,10 +6,8 @@ from functools import cache
 from string import Template
 from typing import TypedDict
 
-from attr import s
 from google import genai
 from google.genai import types
-from pandas.tests.indexing.multiindex.test_indexing_slow import n
 
 from .config import Config
 

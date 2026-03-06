@@ -1,8 +1,6 @@
 import datetime
 import uuid
 
-from attr import ib
-from pandas.tests.util.test_deprecate_nonkeyword_arguments import i
 from sqlalchemy import BigInteger, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 

@@ -1,6 +1,7 @@
 import base64
 import logging
 from pathlib import Path
+from typing import cast
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,10 +34,10 @@ class GoogleServiceAccount(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", extra="ignore", env_prefix="GOOGLE_SERVICE_ACCOUNT_"
     )
-    path: str | None = Field(default=str(SETTINGS_PATH / "service_account.json"))
+    path: str = Field(default=str(SETTINGS_PATH / "service_account.json"))
     b64_value: str | None = None
 
-    def get_service_account_info(self) -> dict:
+    def get_service_account_info(self) -> dict[str, object]:
         import json
 
         if self.b64_value:
@@ -48,7 +49,7 @@ class GoogleServiceAccount(BaseSettings):
 
     def get_client_email(self) -> str:
         info = self.get_service_account_info()
-        return info["client_email"]
+        return cast(str, info["client_email"])
 
     def get_credentials(self):
         from google.oauth2.service_account import Credentials

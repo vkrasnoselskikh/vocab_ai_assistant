@@ -163,7 +163,10 @@ async def process_question(
     training_strategy: TrainStrategy,
     dict_file: GoogleDictFile,
 ):
-    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+    bot = message.bot
+    if bot is None:
+        raise RuntimeError("Message bot is not available")
+    async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
         question_text = await training_strategy.next_word()
 
     if question_text is None:
@@ -198,7 +201,10 @@ async def process_dont_know(
 
     logger.info(f"User {orm_user.id} skipped word: {current_word.get('word_from')}")
 
-    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+    bot = message.bot
+    if bot is None:
+        raise RuntimeError("Message bot is not available")
+    async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
         response, _ = await training_strategy.analyze_user_input("--")
     await message.answer(response)
 
@@ -218,7 +224,10 @@ async def process_answer(
     if user_input is None:
         return
 
-    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+    bot = message.bot
+    if bot is None:
+        raise RuntimeError("Message bot is not available")
+    async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
         response, is_correct = await training_strategy.analyze_user_input(user_input)
     await message.answer(response)
 
