@@ -5,7 +5,7 @@ from typing import Sequence
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from vocab_llm_bot.config import DATABASE_URL
+from vocab_llm_bot.config import DatabaseConfig
 from vocab_llm_bot.models import (
     Base,
     User,
@@ -13,7 +13,8 @@ from vocab_llm_bot.models import (
     UserVocabFileLangColumns,
 )
 
-async_engine = create_async_engine(f"sqlite+aiosqlite:///{str(DATABASE_URL)}")
+async_engine = create_async_engine(DatabaseConfig().database_dsn)
+
 get_session = async_sessionmaker(
     bind=async_engine,
     expire_on_commit=False,

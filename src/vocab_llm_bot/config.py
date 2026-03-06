@@ -1,12 +1,13 @@
+import base64
 import logging
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SETTINGS_PATH = Path(__file__).parent.parent.parent / ".conf"
 SETTINGS_PATH.mkdir(exist_ok=True)
 
-DATABASE_URL = SETTINGS_PATH / "app.db"
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -20,6 +21,11 @@ class Config(BaseSettings):
     telegram_bot_token: str | None = None
 
 
+class DatabaseConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    database_dsn: str = Field(default=f"sqlite+aiosqlite://{SETTINGS_PATH}/app.db")
+
+
 GOOGLE_SHEET_SCOPES: list[str] = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
@@ -27,10 +33,15 @@ class GoogleServiceAccount(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", extra="ignore", env_prefix="GOOGLE_SERVICE_ACCOUNT_"
     )
-    path: str = str(SETTINGS_PATH / "service_account.json")
+    path: str | None = Field(default=str(SETTINGS_PATH / "service_account.json"))
+    b64_value: str | None = None
 
     def get_service_account_info(self) -> dict:
         import json
+
+        if self.b64_value:
+            b64_value = base64.b64decode(self.b64_value).decode("utf-8")
+            return json.loads(b64_value)
 
         with open(self.path, "r") as f:
             return json.load(f)

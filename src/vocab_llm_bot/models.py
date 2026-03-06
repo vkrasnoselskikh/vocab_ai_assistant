@@ -1,7 +1,9 @@
 import datetime
 import uuid
 
-from sqlalchemy import ForeignKey
+from attr import ib
+from pandas.tests.util.test_deprecate_nonkeyword_arguments import i
+from sqlalchemy import BigInteger, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -13,21 +15,11 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    telegram_id: Mapped[str] = mapped_column(unique=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger(), unique=True)
     username: Mapped[str | None]
     first_name: Mapped[str | None]
     last_name: Mapped[str | None]
     training_mode: Mapped[str | None]
-
-
-class OauthAccessToken(Base):
-    __tablename__ = "oauth_access_tokens"
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
-    access_token: Mapped[str | None] = mapped_column(default=None)
-    refresh_token: Mapped[str | None] = mapped_column(default=None)
-    expires_in: Mapped[int | None] = mapped_column(default=None)
-    expires_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
 
 
 class UserVocabFile(Base):

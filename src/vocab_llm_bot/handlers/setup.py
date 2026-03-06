@@ -43,17 +43,17 @@ async def cmd_start(message: Message, state: FSMContext):
         if len(user_vocab_files) == 0:
             await message.answer(
                 text=(
-                    "Вы ещё не добавили из Google Sheet ваш словарь .\n"
-                    "Предоставьте доступ к файлу для почты: "
+                    "Давайте настроем ваш словарь.\n"
+                    "Предоставьте доступ к вашему Google Sheet файлу на мою сервисную почту: "
                     + get_bot_email()
-                    + "\n"
-                    + "А затем Пришлите ссылку на файл:"
+                    + "\n. Это нужно для взаимодействия с вашим словарем."
+                    + "Как только вы предоставите доступ, пришлите в ответ ссылку на файл."
                 )
             )
             await state.set_state(GoogleFileForm.enter_link)
         else:
             await message.answer(
-                text="У вас уже все настроено. Начните учить слова командой /learn"
+                text="У вас уже все настроено. Начните учить слова командой /train"
             )
 
 
