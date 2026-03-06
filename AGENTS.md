@@ -62,3 +62,57 @@ This ensures the user is always focusing on a small, manageable set of vocabular
 - Use type hints in docstrings to describe parameter and return types
 
 Always use context7 for any tasks related to libraries: installation, imports, configuration, updates, integrations, and debugging.
+
+## Project Knowledge (Observed in codebase)
+
+### Runtime and Entry Point
+- CLI entry point is `bot = "vocab_llm_bot.bot:main"` in `pyproject.toml`.
+- Main bot startup is in `src/vocab_llm_bot/bot.py` with aiogram `Dispatcher`, setup/learning routers, and DB session middleware.
+- DB tables are auto-created on startup via `create_all_tables()`.
+
+### Data and Persistence
+- Default DB DSN is SQLite async: `sqlite+aiosqlite://<project>/.conf/app.db` (see `DatabaseConfig`).
+- Main SQLAlchemy models:
+  - `users`
+  - `user_vocab_files`
+  - `user_vocab_file_columns`
+- User language mapping is persisted as two records in `user_vocab_file_columns`.
+
+### Setup Flow (FSM)
+- `/start` starts onboarding when no vocab file exists.
+- User provides Google Sheet link/id -> bot stores `sheet_id`.
+- Bot loads available worksheet tabs and asks user to pick one.
+- Bot asks user to select exactly two language columns from header.
+- Bot then asks for training mode (`word` or `sentence`) and stores it in `users.training_mode`.
+
+### Training Flow
+- `/train` loads up to 10 unlearned words from Google Sheet.
+- Learning state is controlled in-memory via cached strategy object.
+- If answer is correct, word is removed from active set and row status in Google Sheet is updated to `learned`.
+- If answer is wrong or user presses "Я не знаю", word remains in active set.
+
+### Google Sheet Behavior
+- `GoogleDictFile` auto-detects/creates `Status` column (case-insensitive check for `"status"`).
+- "Learned" detection is based on lowercase text equality with `learned`.
+- Header and max rows are memoized with `functools.cache`.
+
+### Caching
+- `get_cached_dict_file(...)` and `get_cached_training_strategy(...)` use `aiocache` memory cache with TTL `900` seconds.
+- Gemini client is singleton-like via `@cache get_gemini_client()`.
+
+### LLM Layer
+- Current generation model: `gemini-3-flash-preview`.
+- Message adaptation is implemented to match Gemini alternation requirements (`user`/`model`) in `get_completion`.
+
+### Quality State (Important)
+- Run checks with `uv run ...` (`pytest`, `ruff check`, `ty check`), not bare binaries.
+- `ruff` has `fix = true`, so `ruff check` can modify files automatically.
+- As of current state, tests are partially stale vs implementation:
+  - `test_update_word_status` calls old signature with `status_column_letter`.
+  - `test_world_pair_strategy_flow` calls outdated `WorldPairTrainStrategy` constructor and old internal attributes.
+- As of current state, `ty check` reports type issues in app code and stale tests; do not assume type-check is green before changes.
+
+### Change Discipline for this Repo
+- If updating strategy APIs or Google Sheet methods, update tests in `test/` in the same task.
+- Preserve current contract: exactly two language columns are expected by training middleware.
+- Keep Russian-language user-facing bot messages consistent with existing handlers unless task explicitly requests localization changes.
