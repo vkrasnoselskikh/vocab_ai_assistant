@@ -7,8 +7,9 @@ from aiogram import BaseMiddleware, F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, Message
+from aiogram.types import InlineKeyboardButton, KeyboardButton, Message
 from aiogram.utils.chat_action import ChatActionSender
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,7 @@ from ..database import (
     get_user_vocab_files,
 )
 from ..google_dict_file import GoogleDictFile
-from ..models import User
+from ..models import User, UserVocabFileLangColumns
 from ..training_strategies import (
     TrainStrategy,
     Word,
@@ -27,6 +28,60 @@ from ..training_strategies import (
 
 learning_router = Router(name="learning")
 logger = logging.getLogger(__name__)
+
+
+def parse_training_mode(
+    raw_training_mode: str | None,
+) -> tuple[str, str | None, str | None]:
+    if raw_training_mode is None:
+        return "word", None, None
+
+    chunks = raw_training_mode.split("|")
+    if len(chunks) == 3 and chunks[0] in {"word", "sentence"}:
+        return chunks[0], chunks[1], chunks[2]
+
+    if raw_training_mode in {"word", "sentence"}:
+        return raw_training_mode, None, None
+
+    return "word", None, None
+
+
+def get_direction_keyboard(
+    mode: str, lang_columns: list[UserVocabFileLangColumns]
+):
+    first_lang = lang_columns[0]
+    second_lang = lang_columns[1]
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=f"{first_lang.lang} -> {second_lang.lang}",
+            callback_data=(
+                f"train_direction:{mode}:{first_lang.column_name}:{second_lang.column_name}"
+            ),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=f"{second_lang.lang} -> {first_lang.lang}",
+            callback_data=(
+                f"train_direction:{mode}:{second_lang.column_name}:{first_lang.column_name}"
+            ),
+        )
+    )
+    return builder.as_markup()
+
+
+def resolve_lang_columns_by_direction(
+    lang_columns: list[UserVocabFileLangColumns],
+    raw_training_mode: str | None,
+) -> tuple[str, UserVocabFileLangColumns, UserVocabFileLangColumns]:
+    mode, from_col, to_col = parse_training_mode(raw_training_mode)
+    col_by_name = {lang_col.column_name: lang_col for lang_col in lang_columns}
+
+    if from_col and to_col and from_col in col_by_name and to_col in col_by_name:
+        return mode, col_by_name[from_col], col_by_name[to_col]
+
+    return mode, lang_columns[0], lang_columns[1]
 
 
 @cached(cache=Cache.MEMORY, ttl=900)
@@ -85,11 +140,14 @@ class TrainingMiddleware(BaseMiddleware):
                 await event.answer("Ошибка: неверные настройки колонок.")
             return
 
+        mode, lang_from, lang_to = resolve_lang_columns_by_direction(
+            list(lang_columns), orm_user.training_mode
+        )
         data["training_strategy"] = await get_cached_training_strategy(
             orm_user.id,
-            orm_user.training_mode or "pair",
-            lang_columns[0].lang,
-            lang_columns[1].lang,
+            mode,
+            lang_from.lang,
+            lang_to.lang,
         )
         return await handler(event, data)
 
@@ -121,15 +179,27 @@ async def cmd_start_train(
         await message.answer("Ошибка: неверные настройки колонок.")
         return
 
+    mode, from_col, to_col = parse_training_mode(orm_user.training_mode)
+    if from_col is None or to_col is None:
+        await message.answer(
+            "Выберите направление перевода:",
+            reply_markup=get_direction_keyboard(mode, list(lang_columns)),
+        )
+        return
+
+    mode, lang_from, lang_to = resolve_lang_columns_by_direction(
+        list(lang_columns), orm_user.training_mode
+    )
+
     from ..google_dict_file import _col_letter_to_index
 
-    lang_cols = [lang_columns[0].column_name, lang_columns[1].column_name]
+    lang_cols = [lang_from.column_name, lang_to.column_name]
     unlearned_res = dict_file.get_unlearned_words(lang_cols=lang_cols, count=10)
 
     active_words: list[Word] = []
     for word_data, row_index in unlearned_res:
-        word_from = word_data[_col_letter_to_index(lang_columns[0].column_name) - 1]
-        word_to = word_data[_col_letter_to_index(lang_columns[1].column_name) - 1]
+        word_from = word_data[_col_letter_to_index(lang_from.column_name) - 1]
+        word_to = word_data[_col_letter_to_index(lang_to.column_name) - 1]
         active_words.append(
             {
                 "word_from": word_from,
@@ -144,12 +214,15 @@ async def cmd_start_train(
         return
 
     training_strategy.set_words(active_words)
-    if orm_user.training_mode == "sentence":
-        intro_text = f"Начнем тренировку! Переводите предложения с {lang_columns[0].lang} на {lang_columns[1].lang}"
+    if mode == "sentence":
+        intro_text = (
+            f"Начнем тренировку! Переводите предложения с "
+            f"{lang_from.lang} на {lang_to.lang}."
+        )
     else:
         intro_text = (
-            f"Начнем тренировку! Переведите слова с {lang_columns[0].lang} "
-            f"на {lang_columns[1].lang}!"
+            f"Начнем тренировку! Переведите слова с {lang_from.lang} "
+            f"на {lang_to.lang}!"
         )
 
     await message.answer(intro_text)
@@ -237,3 +310,43 @@ async def process_answer(
 
     # Move to the next question
     await process_question(message, state, training_strategy, dict_file)
+
+
+@learning_router.callback_query(F.data.startswith("train_direction:"))
+async def process_train_direction_selection(
+    callback_query,
+    state: FSMContext,
+    dict_file: GoogleDictFile,
+    session: AsyncSession,
+    orm_user: User,
+):
+    _, mode, lang_from_col, lang_to_col = callback_query.data.split(":", 3)
+    orm_user.training_mode = f"{mode}|{lang_from_col}|{lang_to_col}"
+    session.add(orm_user)
+    await session.commit()
+    await callback_query.answer()
+
+    if callback_query.message is None:
+        return
+
+    lang_columns = await get_user_vocab_file_lang_columns(
+        session, (await get_user_vocab_files(session, orm_user.id))[0].id
+    )
+    _, lang_from, lang_to = resolve_lang_columns_by_direction(
+        list(lang_columns), orm_user.training_mode
+    )
+    training_strategy = await get_cached_training_strategy(
+        orm_user.id,
+        mode,
+        lang_from.lang,
+        lang_to.lang,
+    )
+
+    await cmd_start_train(
+        callback_query.message,
+        state,
+        dict_file,
+        training_strategy,
+        session,
+        orm_user,
+    )

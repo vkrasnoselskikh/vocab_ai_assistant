@@ -14,6 +14,7 @@ from ..database import (
     delete_all_user_data,
     get_or_create_user,
     get_session,
+    get_user_vocab_file_lang_columns,
     get_user_vocab_files,
 )
 from ..google_dict_file import GoogleDictFile
@@ -32,6 +33,7 @@ class GoogleFileForm(StatesGroup):
     enter_sheet_name = State()
     enter_lang_columns = State()
     select_training_mode = State()
+    select_translation_direction = State()
 
 
 @setup_router.message(StateFilter(None), Command("start"))
@@ -257,14 +259,61 @@ async def process_training_mode_selection(
     callback_query, state: FSMContext, session: AsyncSession, orm_user: User
 ):
     mode = callback_query.data.split(":")[1]
-    orm_user.training_mode = mode
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files:
+        await callback_query.message.answer("Ошибка: файл не найден.")
+        return
+    lang_columns = await get_user_vocab_file_lang_columns(session, user_vocab_files[0].id)
+    if len(lang_columns) != 2:
+        await callback_query.message.answer("Ошибка: неверные настройки колонок.")
+        return
+
+    first_lang = lang_columns[0]
+    second_lang = lang_columns[1]
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=f"{first_lang.lang} -> {second_lang.lang}",
+            callback_data=(
+                f"select_translation_direction:"
+                f"{mode}:{first_lang.column_name}:{second_lang.column_name}"
+            ),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=f"{second_lang.lang} -> {first_lang.lang}",
+            callback_data=(
+                f"select_translation_direction:"
+                f"{mode}:{second_lang.column_name}:{first_lang.column_name}"
+            ),
+        )
+    )
+
+    await state.set_state(GoogleFileForm.select_translation_direction)
+    await callback_query.message.answer(
+        "Выберите направление перевода:",
+        reply_markup=builder.as_markup(),
+    )
+    await callback_query.answer()
+
+
+@setup_router.callback_query(
+    StateFilter(GoogleFileForm.select_translation_direction),
+    F.data.startswith("select_translation_direction:"),
+)
+async def process_translation_direction_selection(
+    callback_query, state: FSMContext, session: AsyncSession, orm_user: User
+):
+    _, mode, lang_from_col, lang_to_col = callback_query.data.split(":", 3)
+    orm_user.training_mode = f"{mode}|{lang_from_col}|{lang_to_col}"
     session.add(orm_user)
     await session.commit()
     await state.clear()
 
     await callback_query.answer()
     await callback_query.message.answer(
-        f"Вы выбрали режим '{mode}'. Начните тренировку командой /train."
+        "Направление перевода сохранено. Начните тренировку командой /train."
     )
 
 
