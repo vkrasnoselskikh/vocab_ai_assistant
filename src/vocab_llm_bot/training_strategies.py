@@ -63,6 +63,21 @@ ANALYZE_ANSWER_PROMPT = Template(
     """
 )
 
+ANALYZE_SENTENCE_ANSWER_PROMPT = Template(
+    """\
+    Analyze my sentence translation into $lang_to.
+
+    Evaluation rules:
+    1. If the translation preserves the main meaning and intent, treat it as correct.
+    2. Minor grammar, punctuation, spelling, or word-order issues should still be treated as correct.
+    3. Mark as incorrect only when meaning is clearly wrong, missing key information, or opposite.
+
+    Output format:
+    - If correct: "✅ Correct"
+    - If incorrect: "❌ Incorrect" and then show a natural correct translation.
+    """
+)
+
 
 class RoleMessage(str, Enum):
     system = "system"
@@ -254,7 +269,9 @@ class WordTranslationSentenceStrategy(TrainStrategy):
         self.messages_ctx.append(
             Message(
                 role=RoleMessage.system,
-                content=ANALYZE_ANSWER_PROMPT.substitute(lang_to=self.lang_to),
+                content=ANALYZE_SENTENCE_ANSWER_PROMPT.substitute(
+                    lang_to=self.lang_to
+                ),
             )
         )
 

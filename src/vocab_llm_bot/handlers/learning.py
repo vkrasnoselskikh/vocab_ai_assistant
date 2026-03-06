@@ -144,9 +144,15 @@ async def cmd_start_train(
         return
 
     training_strategy.set_words(active_words)
-    await message.answer(
-        f"Тренеруемся! Переведите слова с {lang_columns[0].lang} на {lang_columns[1].lang}!"
-    )
+    if orm_user.training_mode == "sentence":
+        intro_text = f"Начнем тренировку! Переводите предложения с {lang_columns[0].lang} на {lang_columns[1].lang}"
+    else:
+        intro_text = (
+            f"Начнем тренировку! Переведите слова с {lang_columns[0].lang} "
+            f"на {lang_columns[1].lang}!"
+        )
+
+    await message.answer(intro_text)
     await process_question(message, state, training_strategy, dict_file)
 
 
