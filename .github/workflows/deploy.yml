@@ -9,7 +9,7 @@ on:
 env:
   CONTAINER_NAME: vocab_ai_assistant
   IMAGE_NAME: ghcr.io/${{ github.repository }}
-  DEPLOY_APP_DIR: /opt/vocab_ai_assistant
+  DEPLOY_APP_DIR: /home/vocabai/vocabai
 
 jobs:
   build:
