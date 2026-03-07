@@ -1,26 +1,26 @@
-FROM python:3.12-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
-
-ARG APP_USER=app
-ARG APP_UID=10001
-ARG APP_GID=10001
-
-RUN groupadd --gid "${APP_GID}" "${APP_USER}" \
-    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /usr/sbin/nologin "${APP_USER}"
+FROM python:3.12-slim AS builder
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Install dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-editable
 
-COPY --chown=${APP_UID}:${APP_GID} pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+COPY . /app
 
-COPY --chown=${APP_UID}:${APP_GID} src ./src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable
 
-USER ${APP_UID}:${APP_GID}
+FROM python:3.12-slim
 
-CMD ["uv", "run", "bot"]
+RUN groupadd -g 5001 app &&\
+    useradd -m -u 5001 -g app app
+
+USER app
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+
+# Run the application
+CMD ["/app/.venv/bin/bot"]
