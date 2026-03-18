@@ -260,3 +260,17 @@ async def save_settings(
     )
     await callback_query.answer()
     await state.clear()
+
+
+@setup_router.message(StateFilter(None), F.text, ~F.text.startswith("/"))
+async def fallback_no_state_message(
+    message: Message, session: AsyncSession, orm_user: User
+):
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files or user_vocab_files[0].sheet_name is None:
+        await message.answer("Сначала настройте бота командой /start")
+        return
+
+    await message.answer(
+        "Похоже, текущая сессия сбросилась. Начните тренировку командой /train"
+    )
