@@ -46,6 +46,7 @@ Output strictly JSON, no markdown.
 
 @vocabulary_router.message(Command("add"))
 async def cmd_add_word(message: Message, state: FSMContext, session: AsyncSession, orm_user: User):
+    await state.clear()
     user_vocab_files = await get_user_vocab_files(session, orm_user.id)
     if not user_vocab_files:
         await message.answer("Сначала настройте приложение командой /start")

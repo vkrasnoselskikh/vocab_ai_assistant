@@ -1,6 +1,7 @@
 import uuid
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -12,9 +13,6 @@ from ..config import GoogleServiceAccount
 from ..database import (
     create_uesr_vocab_file,
     delete_all_user_data,
-    get_or_create_user,
-    get_session,
-    get_user_vocab_file_lang_columns,
     get_user_vocab_files,
 )
 from ..google_dict_file import GoogleDictFile
@@ -26,37 +24,50 @@ setup_router = Router(name="setup")
 def get_bot_email():
     return GoogleServiceAccount().get_client_email()
 
+START_MESSAGE = """\
+<b>Начнем!</b>
+Вам понадобится файл с вашим словарем в Google Sheets.
+Он должен выглядеть как лист с двумя колонками.
+В качестве первой строки должны быть названия языков, которые вы хотите учить. 
+
+Например:
+<code>Русский   | Английский
+----------+-----------
+Кошка     | cat
+Собака    | dog
+Дом       | house</code>
+"""
+
+GIVE_ME_ACCESS_MESSAGE = f"""\
+Чтобы начать заниматься, предоставьте доступ к вашему Google Sheet файлу (c правом на редактирование) на эту почту:
+<pre><code>{get_bot_email()}</code></pre>
+"""
+GIVE_ME_LINK_MESSAGE = """Вставьте ссылку на этот файл ниже:"""
+
 
 # FSM только для настройки
 class GoogleFileForm(StatesGroup):
     enter_link = State()
     enter_sheet_name = State()
     enter_lang_columns = State()
-    select_training_mode = State()
-    select_translation_direction = State()
+    
 
 
-@setup_router.message(StateFilter(None), Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
-    async with get_session() as session:
-        user = await get_or_create_user(session, message.from_user)
-        user_vocab_files = await get_user_vocab_files(session, user.id)
 
-        if len(user_vocab_files) == 0:
-            await message.answer(
-                text=(
-                    "Давайте настроем ваш словарь.\n"
-                    "Предоставьте доступ к вашему Google Sheet файлу на мою сервисную почту: "
-                    + get_bot_email()
-                    + "\n. Это нужно для взаимодействия с вашим словарем."
-                    + "Как только вы предоставите доступ, пришлите в ответ ссылку на файл."
-                )
-            )
-            await state.set_state(GoogleFileForm.enter_link)
-        else:
-            await message.answer(
-                text="У вас уже все настроено. Начните учить слова командой /train"
-            )
+@setup_router.message(Command("start"))
+async def cmd_start(
+    message: Message, state: FSMContext, session: AsyncSession, orm_user: User
+):
+    await state.clear()
+    await delete_all_user_data(session, orm_user.id)
+    orm_user.training_mode = None
+    session.add(orm_user)
+    await session.commit()
+
+    await message.answer(text=START_MESSAGE, parse_mode="HTML")
+    await message.answer(text=GIVE_ME_ACCESS_MESSAGE, parse_mode="HTML")
+    await message.answer(text=GIVE_ME_LINK_MESSAGE)
+    await state.set_state(GoogleFileForm.enter_link)
 
 
 @setup_router.message(StateFilter(GoogleFileForm.enter_link), F.text)
@@ -108,6 +119,10 @@ async def process_file_link(
 async def process_sheet_selection(
     callback_query, state: FSMContext, session: AsyncSession, orm_user: User
 ):
+    if callback_query.message is None:
+        await callback_query.answer()
+        return
+
     sheet_name = callback_query.data.split(":")[1]
 
     user_vocab_files = await get_user_vocab_files(session, orm_user.id)
@@ -126,6 +141,12 @@ async def process_sheet_selection(
 
     # Инициализируем данные в состоянии для отслеживания выбора пользователя
     await state.update_data(header=header, selected_indices=[])
+
+    # Удаляем сообщение с кнопками выбора листа после клика.
+    try:
+        await callback_query.message.delete()
+    except TelegramBadRequest:
+        pass
 
     # Формируем список кнопок через функцию
     await state.set_state(GoogleFileForm.enter_lang_columns)
@@ -196,6 +217,10 @@ async def process_lang_columns(callback_query, state: FSMContext):
 async def save_settings(
     callback_query, state: FSMContext, session: AsyncSession, orm_user: User
 ):
+    if callback_query.message is None:
+        await callback_query.answer("Ошибка: сообщение не найдено.", show_alert=True)
+        return
+
     data = await state.get_data()
     selected_indices = data.get("selected_indices", [])
     header = data.get("header", [])
@@ -222,107 +247,16 @@ async def save_settings(
         )
         session.add(lang_column)
     await session.commit()
-    await callback_query.answer("Колонки успешно сохранены!")
-    await state.set_state(GoogleFileForm.select_training_mode)
-    await select_training_mode(callback_query.message, state, session, orm_user)
 
+    # Удаляем сообщение с кнопками выбора колонок после сохранения.
+    try:
+        await callback_query.message.delete()
+    except TelegramBadRequest:
+        pass
 
-@setup_router.message(Command("setup"))
-async def select_training_mode(
-    message: Message,
-    state: FSMContext,
-    session: AsyncSession,
-    orm_user: User,
-):
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text="Перевод слов", callback_data="select_training_mode:word"
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="Перевод предложений", callback_data="select_training_mode:sentence"
-        )
-    )
-    await message.answer(
-        "Выберите режим тренировки:",
-        reply_markup=builder.as_markup(),
-    )
-    await state.set_state(GoogleFileForm.select_training_mode)
-
-
-@setup_router.callback_query(
-    F.data.startswith("select_training_mode:"),
-)
-async def process_training_mode_selection(
-    callback_query, state: FSMContext, session: AsyncSession, orm_user: User
-):
-    mode = callback_query.data.split(":")[1]
-    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
-    if not user_vocab_files:
-        await callback_query.message.answer("Ошибка: файл не найден.")
-        return
-    lang_columns = await get_user_vocab_file_lang_columns(session, user_vocab_files[0].id)
-    if len(lang_columns) != 2:
-        await callback_query.message.answer("Ошибка: неверные настройки колонок.")
-        return
-
-    first_lang = lang_columns[0]
-    second_lang = lang_columns[1]
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text=f"{first_lang.lang} -> {second_lang.lang}",
-            callback_data=(
-                f"select_translation_direction:"
-                f"{mode}:{first_lang.column_name}:{second_lang.column_name}"
-            ),
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text=f"{second_lang.lang} -> {first_lang.lang}",
-            callback_data=(
-                f"select_translation_direction:"
-                f"{mode}:{second_lang.column_name}:{first_lang.column_name}"
-            ),
-        )
-    )
-
-    await state.set_state(GoogleFileForm.select_translation_direction)
     await callback_query.message.answer(
-        "Выберите направление перевода:",
-        reply_markup=builder.as_markup(),
+        "Колонки успешно сохранены! "
+        "Теперь вы можете начать тренировку с помощью команды /train"
     )
     await callback_query.answer()
-
-
-@setup_router.callback_query(
-    StateFilter(GoogleFileForm.select_translation_direction),
-    F.data.startswith("select_translation_direction:"),
-)
-async def process_translation_direction_selection(
-    callback_query, state: FSMContext, session: AsyncSession, orm_user: User
-):
-    _, mode, lang_from_col, lang_to_col = callback_query.data.split(":", 3)
-    orm_user.training_mode = f"{mode}|{lang_from_col}|{lang_to_col}"
-    session.add(orm_user)
-    await session.commit()
     await state.clear()
-
-    await callback_query.answer()
-    await callback_query.message.answer(
-        "Направление перевода сохранено. Начните тренировку командой /train."
-    )
-
-
-@setup_router.message(Command("reset"))
-async def reset_settings(
-    message: Message, state: FSMContext, session: AsyncSession, orm_user: User
-):
-    await state.clear()
-    await delete_all_user_data(session, orm_user.id)
-    await message.answer(
-        "Настройки сброшены! Теперь вы можете начать все заново. /start"
-    )

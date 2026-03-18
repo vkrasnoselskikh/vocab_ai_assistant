@@ -71,6 +71,23 @@ def get_direction_keyboard(
     return builder.as_markup()
 
 
+def get_training_mode_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="Перевод слов",
+            callback_data="train_select_mode:word",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="Перевод предложений",
+            callback_data="train_select_mode:sentence",
+        )
+    )
+    return builder.as_markup()
+
+
 def resolve_lang_columns_by_direction(
     lang_columns: list[UserVocabFileLangColumns],
     raw_training_mode: str | None,
@@ -160,6 +177,31 @@ learning_router.callback_query.middleware(TrainingMiddleware())
 async def cmd_start_train(
     message: Message,
     state: FSMContext,
+    session: AsyncSession,
+    orm_user: User,
+):
+    await state.clear()
+
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files or not user_vocab_files[0].sheet_name:
+        await message.answer("Сначала настройте приложение командой /start")
+        return
+
+    lang_columns = await get_user_vocab_file_lang_columns(session, user_vocab_files[0].id)
+    if not lang_columns or len(lang_columns) != 2:
+        await message.answer("Ошибка: неверные настройки колонок.")
+        return
+
+    await state.clear()
+    await message.answer(
+        "Выберите режим тренировки:",
+        reply_markup=get_training_mode_keyboard(),
+    )
+
+
+async def start_training_session(
+    message: Message,
+    state: FSMContext,
     dict_file: GoogleDictFile,
     training_strategy: TrainStrategy,
     session: AsyncSession,
@@ -177,14 +219,6 @@ async def cmd_start_train(
     )
     if not lang_columns or len(lang_columns) != 2:
         await message.answer("Ошибка: неверные настройки колонок.")
-        return
-
-    mode, from_col, to_col = parse_training_mode(orm_user.training_mode)
-    if from_col is None or to_col is None:
-        await message.answer(
-            "Выберите направление перевода:",
-            reply_markup=get_direction_keyboard(mode, list(lang_columns)),
-        )
         return
 
     mode, lang_from, lang_to = resolve_lang_columns_by_direction(
@@ -227,6 +261,36 @@ async def cmd_start_train(
 
     await message.answer(intro_text)
     await process_question(message, state, training_strategy, dict_file)
+
+
+@learning_router.callback_query(F.data.startswith("train_select_mode:"))
+async def process_train_mode_selection(
+    callback_query,
+    session: AsyncSession,
+    orm_user: User,
+):
+    if callback_query.message is None:
+        await callback_query.answer()
+        return
+
+    mode = callback_query.data.split(":")[1]
+    user_vocab_files = await get_user_vocab_files(session, orm_user.id)
+    if not user_vocab_files:
+        await callback_query.message.answer("Ошибка: файл не найден.")
+        await callback_query.answer()
+        return
+
+    lang_columns = await get_user_vocab_file_lang_columns(session, user_vocab_files[0].id)
+    if len(lang_columns) != 2:
+        await callback_query.message.answer("Ошибка: неверные настройки колонок.")
+        await callback_query.answer()
+        return
+
+    await callback_query.message.answer(
+        "Выберите направление перевода:",
+        reply_markup=get_direction_keyboard(mode, list(lang_columns)),
+    )
+    await callback_query.answer()
 
 
 @learning_router.message(TrainState.gen_question)
@@ -285,7 +349,9 @@ async def process_dont_know(
     await process_question(message, state, training_strategy, dict_file)
 
 
-@learning_router.message(StateFilter(TrainState.wait_user_answer))
+@learning_router.message(
+    StateFilter(TrainState.wait_user_answer), F.text, ~F.text.startswith("/")
+)
 async def process_answer(
     message: Message,
     state: FSMContext,
@@ -342,7 +408,7 @@ async def process_train_direction_selection(
         lang_to.lang,
     )
 
-    await cmd_start_train(
+    await start_training_session(
         callback_query.message,
         state,
         dict_file,

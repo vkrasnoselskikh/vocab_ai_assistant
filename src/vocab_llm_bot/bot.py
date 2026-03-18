@@ -42,9 +42,9 @@ async def async_main():
 
     await bot.set_my_commands(
         [
-            BotCommand(command="start", description="Настроить бота"),
             BotCommand(command="train", description="Начать тренировку"),
             BotCommand(command="add", description="Добавить слово"),
+            BotCommand(command="start", description="Настроить бота сначала"),
         ]
     )
 
