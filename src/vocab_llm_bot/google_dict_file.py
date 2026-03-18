@@ -194,3 +194,70 @@ class GoogleDictFile:
 
         # Return random selection up to the requested count
         return random.sample(unlearned_rows, min(len(unlearned_rows), count))
+
+    def add_word(self, word_data: dict[str, str]) -> None:
+        """Adds a new word to the sheet.
+        Args:
+            word_data: Dictionary mapping column names (e.g. 'English') to values (e.g. 'Cat').
+        """
+        header = self.get_header()
+        if not header:
+            raise ValueError("Could not read header")
+
+        col_map = {col_name: col_letter for col_name, _, col_letter in header}
+        max_col_index = 0
+        
+        # Prepare row data
+        row_values = {}  # col_index -> value
+        
+        for col_name, value in word_data.items():
+            if col_name not in col_map:
+                # Optionally try case-insensitive match
+                found = False
+                for h_name, h_letter in col_map.items():
+                    if str(h_name).lower() == str(col_name).lower():
+                        col_map[col_name] = h_letter # Cache it
+                        found = True
+                        break
+                if not found:
+                    logger.warning(f"Column '{col_name}' not found in header. Skipping value '{value}'.")
+                    continue
+            
+            col_letter = col_map[col_name]
+            col_idx = _col_letter_to_index(col_letter) - 1
+            row_values[col_idx] = value
+            max_col_index = max(max_col_index, col_idx)
+
+        # Also add status "unlearned" if status column exists
+        status_info = self.get_status_column_info()
+        if status_info:
+             _, status_letter = status_info
+             status_idx = _col_letter_to_index(status_letter) - 1
+             row_values[status_idx] = "unlearned"
+             max_col_index = max(max_col_index, status_idx)
+        else:
+             # Ensure status column creates it if missing, but get_status_column_info just checks
+             # We should probably call ensure_status_column if we want to be sure
+             status_letter = self.ensure_status_column()
+             status_idx = _col_letter_to_index(status_letter) - 1
+             row_values[status_idx] = "unlearned"
+             max_col_index = max(max_col_index, status_idx)
+
+        # Convert sparse dict to list
+        final_row = [""] * (max_col_index + 1)
+        for idx, val in row_values.items():
+            final_row[idx] = val
+
+        try:
+            self.sheet.values().append(
+                spreadsheetId=self.google_sheet_id,
+                range=f"{self.sheet_name}!A1",
+                valueInputOption="USER_ENTERED",
+                insertDataOption="INSERT_ROWS",
+                body={"values": [final_row]},
+            ).execute()
+            # Clear cache as row count changed
+            self.get_max_rows.cache_clear()
+        except HttpError as err:
+            logger.error(f"Failed to add word: {err}")
+            raise

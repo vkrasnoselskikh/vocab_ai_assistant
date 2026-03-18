@@ -19,9 +19,7 @@ async def test_get_completion_basic_success():
     mock_client = MagicMock()
     mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
-    with patch(
-        "vocab_llm_bot.training_strategies.get_gemini_client", return_value=mock_client
-    ):
+    with patch("vocab_llm_bot.llm.get_gemini_client", return_value=mock_client):
         messages: list[Message] = [{"role": RoleMessage.user, "content": "Hi"}]
         result = await get_completion(messages)
 
@@ -42,9 +40,7 @@ async def test_get_completion_merging_roles():
     mock_client = MagicMock()
     mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
-    with patch(
-        "vocab_llm_bot.training_strategies.get_gemini_client", return_value=mock_client
-    ):
+    with patch("vocab_llm_bot.llm.get_gemini_client", return_value=mock_client):
         messages: list[Message] = [
             {"role": RoleMessage.system, "content": "Instruction 1"},
             {"role": RoleMessage.user, "content": "Question"},
@@ -79,9 +75,7 @@ async def test_get_completion_prepend_user():
     mock_client = MagicMock()
     mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
-    with patch(
-        "vocab_llm_bot.training_strategies.get_gemini_client", return_value=mock_client
-    ):
+    with patch("vocab_llm_bot.llm.get_gemini_client", return_value=mock_client):
         # Start with assistant message
         messages: list[Message] = [{"role": RoleMessage.assistant, "content": "Hello"}]
         await get_completion(messages)
@@ -131,3 +125,29 @@ async def test_world_pair_strategy_flow():
         assert "correct" in strategy.messages_ctx[3]["content"].lower()
         # Word should be removed from the list after correct answer
         assert len(strategy.words) == 0
+
+
+@pytest.mark.asyncio
+async def test_world_pair_strategy_accepts_one_of_multiple_translations():
+    words: list[Word] = [
+        {"word_from": "home", "word_to": "дом, жилище; квартира", "row_index": 3}
+    ]
+    strategy = WorldPairTrainStrategy("English", "Russian")
+    strategy.set_words(words)
+
+    with patch(
+        "vocab_llm_bot.training_strategies.get_completion",
+        AsyncMock(
+            return_value="✅ Correct\nТакже возможны другие переводы: дом, жилище."
+        ),
+    ) as mocked_completion:
+        await strategy.next_word()
+        resp, is_correct = await strategy.analyze_user_input("квартира")
+
+    assert is_correct is True
+    assert "✅ Correct" in resp
+    assert "Также возможны другие переводы: дом, жилище." in resp
+    assert len(strategy.words) == 0
+    mocked_completion.assert_called_once()
+    assert "comma (,)" in strategy.messages_ctx[3]["content"]
+    assert "semicolon (;)" in strategy.messages_ctx[3]["content"]

@@ -1,11 +1,11 @@
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot, Dispatcher
-from aiogram.types import TelegramObject
+from aiogram.types import BotCommand, TelegramObject
 
 from .config import Config
 from .database import create_all_tables, get_or_create_user, get_session
-from .handlers import learning, setup
+from .handlers import learning, setup, vocabulary
 
 
 # ========== MIDDLEWARES ==========
@@ -36,7 +36,17 @@ async def async_main():
     dp.message.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(DbSessionMiddleware())
 
-    dp.include_routers(setup.setup_router, learning.learning_router)
+    dp.include_routers(
+        setup.setup_router, learning.learning_router, vocabulary.vocabulary_router
+    )
+
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Настроить бота"),
+            BotCommand(command="train", description="Начать тренировку"),
+            BotCommand(command="add", description="Добавить слово"),
+        ]
+    )
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

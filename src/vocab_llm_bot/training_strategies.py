@@ -1,15 +1,11 @@
 import logging
 import random
 from abc import ABC, abstractmethod
-from enum import Enum
-from functools import cache
 from string import Template
 from typing import TypedDict
 
-from google import genai
-from google.genai import types
 
-from .config import Config
+from .llm import Message, RoleMessage, get_completion
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +51,16 @@ USER_DONT_KNOW_PROMPT = Template("I don't know. Translate your sentence to $lang
 
 ANALYZE_ANSWER_PROMPT = Template(
     """\
-    Analyze the my answer. If I translate to $lang_to correctly, write "✅ Сorrect"
-    else "❌ Incorrect" and show translation.
-    Answer in $lang_to.
+    Analyze my translation into $lang_to.
+
+    Important rules:
+    1. The expected translation may contain multiple valid variants separated by comma (,) or semicolon (;).
+    2. If user's answer matches any one of these variants, treat it as correct.
+    3. Answer in $lang_to.
+
+    Output format:
+    - If correct: "✅" and say that it's correct and show are other variants(if it exists in user's vocabulary). 
+    - If incorrect: "❌" and then show a correct translation.
     """
 )
 
@@ -71,63 +74,16 @@ ANALYZE_SENTENCE_ANSWER_PROMPT = Template(
     3. Mark as incorrect only when meaning is clearly wrong, missing key information, or opposite.
 
     Output format:
-    - If correct: "✅ Correct"
+    - If correct: "✅" and say that it's correct.
     - If incorrect: "❌ Incorrect" and then show a natural correct translation.
     """
 )
-
-
-class RoleMessage(str, Enum):
-    system = "system"
-    assistant = "assistant"
-    user = "user"
-
-
-class Message(TypedDict):
-    role: RoleMessage
-    content: str
 
 
 class Word(TypedDict):
     word_from: str
     word_to: str
     row_index: int
-
-
-@cache
-def get_gemini_client() -> genai.Client:
-    return genai.Client(api_key=Config().gemini_api_key)
-
-
-async def get_completion(messages: list[Message]) -> str:
-    contents: list[types.Content] = []
-
-    for msg in messages:
-        # Простое правило: assistant -> model, всё остальное (user/system) -> user
-        role = "model" if msg["role"] == RoleMessage.assistant else "user"
-        text = msg["content"]
-
-        if contents and contents[-1].role == role:
-            # Если роль совпадает с предыдущим сообщением, склеиваем их (Gemini требует чередования)
-            if contents[-1].parts is None:
-                contents[-1].parts = []
-            contents[-1].parts.append(types.Part.from_text(text=text))
-        else:
-            contents.append(
-                types.Content(role=role, parts=[types.Part.from_text(text=text)])
-            )
-
-    # Gemini требует, чтобы диалог всегда начинался с 'user'
-    if contents and contents[0].role == "model":
-        contents.insert(
-            0, types.Content(role="user", parts=[types.Part.from_text(text="...")])
-        )
-
-    response = await get_gemini_client().aio.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=contents,
-    )
-    return response.text or ""
 
 
 class TrainStrategy(ABC):
@@ -216,12 +172,13 @@ class WorldPairTrainStrategy(TrainStrategy):
         )
 
         assistant = await get_completion(self.messages_ctx)
-        self.messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
 
         is_correct = "✅" in assistant
 
         if is_correct:
             self.words.remove(current_word)
+
+        self.messages_ctx.append({"role": RoleMessage.assistant, "content": assistant})
 
         return assistant, is_correct
 
